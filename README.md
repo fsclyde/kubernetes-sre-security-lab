@@ -42,6 +42,7 @@ The read role cannot read Secrets, write resources, execute commands in pods, or
 
 - [Architecture and threat model](docs/architecture.md)
 - [Lab runbook and proof criteria](docs/lab-runbook.md)
+- [Setup commands](docs/setup.md)
 - [Technical items to validate](docs/validation-gaps.md)
 - [Proposed Kubernetes roles](manifests/rbac/demo-roles.yaml)
 
