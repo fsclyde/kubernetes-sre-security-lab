@@ -1,0 +1,34 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agent-security-lab
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: ./.local/audit-policy.yaml
+        containerPath: /etc/kubernetes/pki/audit-policy.yaml
+        readOnly: true
+      - hostPath: ./.local/k8s-audit
+        containerPath: /var/log/kubernetes
+        readOnly: false
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiVersion: kubeadm.k8s.io/v1beta3
+        apiServer:
+          extraArgs:
+            audit-policy-file: /etc/kubernetes/pki/audit-policy.yaml
+            audit-log-path: /var/log/kubernetes/audit.log
+            audit-log-maxage: "1"
+            audit-log-maxbackup: "2"
+            audit-log-maxsize: "100"
+          extraVolumes:
+            - name: audit-policy
+              hostPath: /etc/kubernetes/pki/audit-policy.yaml
+              mountPath: /etc/kubernetes/pki/audit-policy.yaml
+              readOnly: true
+              pathType: File
+            - name: audit-log
+              hostPath: /var/log/kubernetes
+              mountPath: /var/log/kubernetes
+              readOnly: false
+              pathType: DirectoryOrCreate
