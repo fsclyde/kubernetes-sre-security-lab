@@ -1,0 +1,27 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  # Never capture Secret request or response bodies in the audit log.
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets"]
+
+  # Capture the requests and responses from agent MCP identities so attempted
+  # writes and their outcomes can be demonstrated in the lab.
+  - level: RequestResponse
+    users:
+      - system:serviceaccount:mcp:k8s-mcp-read
+      - system:serviceaccount:mcp:k8s-mcp-write
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Keep metadata for read operations made by the two MCP identities.
+  - level: Metadata
+    users:
+      - system:serviceaccount:mcp:k8s-mcp-read
+      - system:serviceaccount:mcp:k8s-mcp-write
+
+  # Avoid a noisy audit file for unrelated cluster traffic in this small lab.
+  - level: None
