@@ -108,9 +108,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: agentgateway-system
-          podSelector:
-            matchLabels:
-              app: agentgateway
       ports:
         - { protocol: TCP, port: 3000 }
         - { protocol: TCP, port: 80 }

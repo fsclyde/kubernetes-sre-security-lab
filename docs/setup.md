@@ -118,7 +118,13 @@ The Gateway accepts only Keycloak JWTs. The GitHub MCP backend has a tool allowl
 kubectl port-forward -n agentgateway-system svc/agentgateway-proxy 8080:80
 ```
 
-Use Keycloak's client-credentials flow to get a temporary token. Run this in another terminal after setting the client secret from `.local/lab-secrets.env`:
+Start a second port-forward for Keycloak in another terminal:
+
+```bash
+kubectl port-forward -n identity svc/keycloak 8081:8080
+```
+
+Then use Keycloak's client-credentials flow to get a temporary token, after setting the client secret from `.local/lab-secrets.env`:
 
 ```bash
 set -a
@@ -128,12 +134,6 @@ HOLMES_TOKEN="$(curl --fail --silent --show-error \
   -u "holmes:${HOLMES_CLIENT_SECRET}" \
   -d grant_type=client_credentials \
   http://localhost:8081/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
-```
-
-For this local-only demo, Keycloak must be port-forwarded separately before requesting a token:
-
-```bash
-kubectl port-forward -n identity svc/keycloak 8081:8080
 ```
 
 The Gateway routes are `/mcp` for GitHub MCP, `/mcp/k8s-read` and `/mcp/k8s-write` for the Kubernetes MCP servers, and `/v1/messages` for Anthropic.
