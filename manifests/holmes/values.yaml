@@ -1,0 +1,21 @@
+# Values for the HolmesGPT Helm chart. The chart and image version are pinned
+# by the setup guide; this file keeps built-in tools disabled by default.
+createServiceAccount: true
+k8sRBAC: false
+toolsets:
+  kubernetes/core: { enabled: false }
+  kubernetes/logs: { enabled: false }
+  robusta: { enabled: false }
+  internet: { enabled: false }
+  prometheus/metrics: { enabled: false }
+  skills: { enabled: false }
+  connectivity_check: { enabled: false }
+  bash: { enabled: false }
+config:
+  builtin_allowlist: ""
+  mcp_servers: {}
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+automountServiceAccountToken: false

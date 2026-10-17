@@ -49,7 +49,7 @@ The read and write MCP servers use separate ServiceAccounts in `mcp`. RoleBindin
 - Limit egress to the identity sidecar; the sidecar can reach only Keycloak, agentgateway, and DNS.
 - Restrict access to `/api/chat`.
 
-Exact HolmesGPT Helm value names and NetworkPolicies depend on the selected chart and CNI.
+The sample values are in [`../manifests/holmes/values.yaml`](../manifests/holmes/values.yaml) and [`../manifests/operator/values.yaml`](../manifests/operator/values.yaml). Review the chart's rendered configuration when upgrading the pinned chart.
 
 ### agentgateway and Keycloak
 

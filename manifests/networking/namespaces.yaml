@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: identity
+  labels:
+    app.kubernetes.io/part-of: kubernetes-sre-security-lab
+    network-policy-zone: identity
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: holmes
+  labels:
+    app.kubernetes.io/part-of: kubernetes-sre-security-lab
+    network-policy-zone: holmes
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: operator
+  labels:
+    app.kubernetes.io/part-of: kubernetes-sre-security-lab
+    network-policy-zone: operator

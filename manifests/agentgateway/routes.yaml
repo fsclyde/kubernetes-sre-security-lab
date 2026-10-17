@@ -1,0 +1,282 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway-proxy
+  namespace: agentgateway-system
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: github-mcp-backend
+  namespace: mcp
+spec:
+  mcp:
+    targets:
+      - name: github-mcp
+        selector:
+          services:
+            matchLabels:
+              app.kubernetes.io/name: github-mcp
+  policies:
+    auth:
+      secretRef:
+        name: github-mcp-token
+        key: token
+      credentials:
+        - location:
+            header: X-MCP-Readonly
+          secretRef:
+            name: github-mcp-token
+            key: readonly
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: k8s-read-backend
+  namespace: mcp
+spec:
+  mcp:
+    targets:
+      - name: k8s-mcp-read
+        selector:
+          services:
+            matchLabels:
+              app.kubernetes.io/instance: k8s-mcp-read
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: k8s-write-backend
+  namespace: mcp
+spec:
+  mcp:
+    targets:
+      - name: k8s-mcp-write
+        selector:
+          services:
+            matchLabels:
+              app.kubernetes.io/instance: k8s-mcp-write
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: github-mcp
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agentgateway-proxy
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: github-mcp-backend
+          namespace: mcp
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kubernetes-mcp
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agentgateway-proxy
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp/k8s-read
+      backendRefs:
+        - name: k8s-read-backend
+          namespace: mcp
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp/k8s-write
+      backendRefs:
+        - name: k8s-write-backend
+          namespace: mcp
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: anthropic
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      anthropic: {}
+  policies:
+    ai:
+      routes:
+        /v1/messages: Messages
+        "*": Passthrough
+    auth:
+      secretRef:
+        name: anthropic-secret
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: anthropic
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agentgateway-proxy
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: anthropic
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-github-mcp
+  namespace: mcp
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: agentgateway-system
+  to:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-kubernetes-mcp
+  namespace: mcp
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: agentgateway-system
+  to:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: k8s-read-backend
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: k8s-write-backend
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-keycloak-jwks
+  namespace: identity
+spec:
+  from:
+    - group: agentgateway.dev
+      kind: AgentgatewayPolicy
+      namespace: agentgateway-system
+  to:
+    - group: ""
+      kind: Service
+      name: keycloak
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: keycloak-jwt
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agentgateway-proxy
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab
+          jwks:
+            remote:
+              jwksPath: /realms/sre-lab/protocol/openid-connect/certs
+              cacheDuration: 5m
+              backendRef:
+                group: ""
+                kind: Service
+                name: keycloak
+                namespace: identity
+                port: 8080
+    authorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          - "jwt.azp == 'holmes' || jwt.azp == 'operator'"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: github-tool-rbac
+  namespace: mcp
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: github-mcp-backend
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - "(jwt.azp == 'holmes' || jwt.azp == 'operator') && mcp.tool.name in ['get_file_contents', 'list_commits', 'list_issues', 'get_issue']"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: k8s-read-tool-rbac
+  namespace: mcp
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: k8s-read-backend
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - "jwt.azp == 'holmes' || jwt.azp == 'operator'"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: k8s-write-tool-rbac
+  namespace: mcp
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: k8s-write-backend
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - "jwt.azp == 'operator'"

@@ -2,7 +2,7 @@
 
 This lab demonstrates how to control and observe an SRE agent investigating and repairing a Kubernetes incident. HolmesGPT reads cluster state and a demo GitHub repository. A separate operator agent can repair the deployment. Keycloak authenticates each agent, agentgateway protects calls to the model and MCP servers, and Kubernetes RBAC limits the actions each identity can perform.
 
-> **Status: foundation.** This lab includes the scenario, threat model, namespace-scoped RBAC, kind audit configuration, and an RBAC proof script. The full application stack and one-command setup remain future work because the component configuration details need validation against pinned versions.
+> **Status: end-to-end lab configuration in progress.** The repository includes manifests and setup steps for Keycloak, HolmesGPT, an operator release, authenticated agentgateway routes, a demo workload, GitHub MCP, Calico NetworkPolicies, and Falco/Tetragon installation. The full stack still needs a local environment run-through before it can be described as verified.
 
 ## What the lab demonstrates
 
@@ -45,21 +45,26 @@ The read role cannot read Secrets, write resources, execute commands in pods, or
 - [Setup commands](docs/setup.md)
 - [Technical items to validate](docs/validation-gaps.md)
 - [Proposed Kubernetes roles](manifests/rbac/demo-roles.yaml)
+- [Read and write Kubernetes MCP Helm values](manifests/mcp/)
+- [Gateway routes and policies](manifests/agentgateway/routes.yaml)
+- [Keycloak realm and bootstrap](manifests/keycloak/)
+- [Demo app and GitHub MCP](manifests/demo/)
+- [NetworkPolicies](manifests/networking/policies.yaml)
 
 ## Expected prerequisites
 
 - Docker Desktop (or Docker Engine), `kind`, `kubectl`, and Helm.
 - An Anthropic API key.
 - A fine-grained GitHub token, read-only and limited to the demo repository.
-- About 8 GB of memory allocated to Docker for the full stack with Keycloak, HolmesGPT, agentgateway, MCP servers, and observability tools.
+- About 10 GB of memory allocated to Docker for the full stack with Keycloak, HolmesGPT, agentgateway, MCP servers, and observability tools.
 
 Generate secrets locally at startup, exclude them from Git, and rotate them when rebuilding the lab. Model usage is billable and varies with the number of calls.
 
 ## Current implementation status
 
-This repository begins with the threat model, scenario, proposed namespace-scoped RBAC, and an API-server audit profile for the `kind` cluster. The end-to-end stack is intentionally staged: HolmesGPT chart values, agentgateway policy schema, Keycloak token flow, and MCP routes must be pinned and verified before a one-command installer can be advertised.
+This repository provides the threat model, scenario, namespace-scoped RBAC, audit profile, gateway routes and policies, Keycloak realm, demo workload, GitHub MCP, Holmes chart values, Calico NetworkPolicies, and setup instructions. Falco and Tetragon are optional components; Tetragon depends on the kernel exposed by the local `kind` node. Review [known validation gaps](docs/validation-gaps.md) before treating the setup as verified.
 
-The RBAC manifest can be applied to a disposable cluster and checked with:
+The full foundation command sequence, including the pinned agentgateway control plane and Kubernetes MCP server charts, is in [the setup guide](docs/setup.md). The RBAC manifest can be applied to a disposable cluster and checked with:
 
 ```bash
 kubectl apply -f manifests/rbac/demo-roles.yaml
@@ -74,4 +79,4 @@ cp kind/audit-policy.yaml .local/audit-policy.yaml
 kind create cluster --config kind/cluster.yaml
 ```
 
-The cluster config enables the Kubernetes audit log and the rule file records Secret access at Metadata level. Continue with the staged deployment work described in [technical items to validate](docs/validation-gaps.md).
+The cluster config enables the Kubernetes audit log and the rule file records Secret access at Metadata level. Continue with the full deployment sequence in [the setup guide](docs/setup.md).

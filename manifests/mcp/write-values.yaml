@@ -1,0 +1,30 @@
+fullnameOverride: k8s-mcp-write
+
+serviceAccount:
+  create: false
+  name: k8s-mcp-write
+  automountToken: true
+
+rbac:
+  create: false
+
+ingress:
+  enabled: false
+
+httpRoute:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 8080
+
+image:
+  version: v0.0.67
+
+config:
+  port: "8080"
+  bind_address: "0.0.0.0"
+  toolsets:
+    - core
+  disabled_tools:
+    - configuration_view
