@@ -209,7 +209,7 @@ spec:
       name: github-mcp
   traffic:
     jwtAuthentication:
-      mode: Strict
+      mode: Optional
       providers:
         - issuer: http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab
           jwks:
@@ -240,7 +240,7 @@ spec:
       name: kubernetes-mcp
   traffic:
     jwtAuthentication:
-      mode: Strict
+      mode: Optional
       providers:
         - issuer: http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab
           jwks:
