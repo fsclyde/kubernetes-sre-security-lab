@@ -1,0 +1,22 @@
+driver:
+  kind: modern_ebpf
+
+collectors:
+  enabled: true
+
+falco:
+  json_output: true
+  time_format_iso_8601: true
+  base_syscalls:
+    all: true
+  rule_matching: all
+
+customRules:
+  agent-activity.yaml: |-
+    - rule: Agent container syscall activity
+      desc: Record supported syscall events from the agent, MCP, and Gateway namespaces for lab activity review.
+      condition: syscall.type exists and k8s.ns.name in (holmes, operator, mcp, agentgateway-system)
+      output: "Agent syscall: ns=%k8s.ns.name pod=%k8s.pod.name container=%container.name user=%user.name process=%proc.name command=%proc.cmdline syscall=%syscall.type event=%evt.type"
+      priority: Informational
+      source: syscall
+      tags: [agent_activity, audit]
