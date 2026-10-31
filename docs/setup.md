@@ -194,6 +194,8 @@ Denied MCP tool calls can have HTTP `200` with an MCP error in the response body
 
 The repository contains separate values files so each Holmes release has its own namespace and identity boundary. The built-in Kubernetes, Bash, internet, and default integrations are disabled.
 
+The `holmes` and `operator` namespaces enforce the Kubernetes Pod Security `restricted` standard at version 1.35. Their Helm values set UID/GID 10001, `runAsNonRoot`, `RuntimeDefault` seccomp, `allowPrivilegeEscalation: false`, and drop all Linux capabilities so the pods satisfy that policy.
+
 ```bash
 helm repo add robusta https://robusta-charts.storage.googleapis.com
 helm repo update
@@ -208,6 +210,14 @@ helm upgrade --install operator robusta/holmes \
 ```
 
 The two releases provide separate HolmesGPT deployments for investigation and repair. Connect their MCP and model clients to the authenticated gateway endpoints. Automated Keycloak client-credentials refresh inside the Holmes chart is still an integration item; do not put a long-lived bearer token in a ConfigMap or values file. The operator should be activated by the learner only for the repair step.
+
+If the namespaces already exist, apply the updated labels and confirm them before upgrading the releases:
+
+```bash
+kubectl apply -f manifests/networking/namespaces.yaml
+kubectl get namespace holmes operator \
+  -L pod-security.kubernetes.io/enforce,pod-security.kubernetes.io/enforce-version
+```
 
 Both values files set the Holmes container UID and GID to `10001` while keeping `runAsNonRoot` enabled. This is required because the image metadata reports root; without an explicit non-root UID, Kubernetes rejects container creation before Holmes starts.
 
