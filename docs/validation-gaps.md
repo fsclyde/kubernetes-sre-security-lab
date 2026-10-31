@@ -8,6 +8,7 @@ The configuration is prepared, but these behaviors still need confirmation in a 
 - **GitHub MCP:** verify GitHub MCP v2.0.2 honors the injected token and `X-MCP-Readonly` header. HTTPS egress currently allows public IPs broadly because Kubernetes NetworkPolicy has no domain matching.
 - **NetworkPolicy:** confirm the selected CNI enforces the supplied policies and permits only required DNS, Gateway, API, and GitHub MCP paths.
 - **Calico / Kubernetes 1.35:** verify the configured MutatingAdmissionPolicy feature gate and API support before installing Calico 3.33.
+- **Falco runtime coverage:** verify the custom rule records syscall events for Holmes, operator, MCP, and Gateway pods; watch for event drops and resource pressure. Falco does not provide a complete semantic record of every agent action.
 - **Identity lifecycle:** measure token rejection after client disablement and behavior during JWKS refresh/rotation; do not assume a revocation bound.
 - **Secret redaction:** no prompt-redaction policy is included yet. Do not claim model-bound secrets are filtered.
 - **Audit identity:** baseline Kubernetes audit entries identify the MCP ServiceAccounts. Direct Holmes/operator attribution requires the optional OIDC configuration.
