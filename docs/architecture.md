@@ -74,9 +74,8 @@ The sample values are in [`../manifests/holmes/values.yaml`](../manifests/holmes
 
 - **agentgateway access logs:** one structured record per request processed by the Gateway, including route, MCP method/tool, status, and authenticated subject when available.
 - **Kubernetes audit log:** records API requests made by the MCP ServiceAccounts, including verb, resource, namespace, and response code. Secret access is Metadata-only.
-- **Falco:** reports runtime events that match its enabled rules. The current chart values do not connect Falco to the Kubernetes audit log.
 
-Use Gateway logs for model/MCP traffic and API audit records for cluster changes. Correlate them by time and tool; Kubernetes sees the MCP ServiceAccount, not the original agent identity in the baseline configuration. These logs provide a strong activity trail, but Falco alone does not record every agent action.
+Use Gateway logs for model/MCP traffic and API audit records for cluster changes. Correlate them by time and tool; Kubernetes sees the MCP ServiceAccount, not the original agent identity in the baseline configuration. Together, these provide an activity trail for requests processed by the Gateway and Kubernetes API actions.
 
 ## Advanced step: end-to-end agent identity
 
