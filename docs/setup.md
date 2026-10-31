@@ -83,7 +83,15 @@ kubectl patch service k8s-mcp-write -n mcp --type=json \
 
 ## 4. Create credentials and install Keycloak
 
-Create a fine-grained GitHub token with read-only access to the demo repository and have an Anthropic API key ready. The bootstrap script prompts for these values and stores them in ignored `.local/` files with owner-only permissions.
+Create a fine-grained GitHub token for the GitHub MCP server:
+
+1. In GitHub, open **Settings → Developer settings → Fine-grained personal access tokens → Generate new token**.
+2. Give the token a recognizable name, choose an expiration that fits your lab session, and set **Resource owner** to the owner of the repository.
+3. Under **Repository access**, select **Only select repositories** and choose the repository containing the demo issue and source code (for this lab, `kubernetes-sre-security-lab`).
+4. Under **Repository permissions**, set **Contents: Read-only** and **Issues: Read-only**. Leave every other permission at **No access**. GitHub automatically includes the required read-only Metadata permission.
+5. Generate the token and copy it. GitHub shows the token only once.
+
+Have an Anthropic API key ready as well. The bootstrap script prompts for both values and stores them in ignored `.local/` files with owner-only permissions. The gateway injects the GitHub token into GitHub MCP and sets its `X-MCP-Readonly` header; do not grant write permissions.
 
 ```bash
 ./scripts/bootstrap-secrets.sh
