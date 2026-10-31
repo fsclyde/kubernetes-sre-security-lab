@@ -2,7 +2,7 @@
 
 A hands-on lab for securing an AI SRE workflow on Kubernetes. HolmesGPT investigates an incident using read-only Kubernetes and GitHub tools. A separately authenticated operator can repair the demo application.
 
-> **Status: Lab configuration complete.** Follow the setup guide to deploy and exercise the full workflow. Environment-dependent checks that still need a local run are listed in [known validation gaps](docs/validation-gaps.md).
+> **Status: Lab configuration complete.** Follow the setup guide to deploy and exercise the full workflow. What I confirmed and what still needs work is listed in [known gaps](docs/validation-gaps.md).
 
 ## Security controls
 
@@ -44,7 +44,7 @@ Holmes cannot read Secrets, write resources, execute commands in pods, or access
 - [Setup and test commands](docs/setup.md)
 - [Architecture and threat model](docs/architecture.md)
 - [Lab runbook and proof criteria](docs/lab-runbook.md)
-- [Known validation gaps](docs/validation-gaps.md)
+- [Known gaps](docs/validation-gaps.md)
 
 Other configuration: [Falco runtime rules](manifests/falco/values.yaml) · [RBAC](manifests/rbac/demo-roles.yaml) · [Gateway](manifests/agentgateway/routes.yaml) · [Keycloak](manifests/keycloak/) · [MCP servers](manifests/mcp/) · [Demo and GitHub MCP](manifests/demo/) · [NetworkPolicies](manifests/networking/policies.yaml)
 
