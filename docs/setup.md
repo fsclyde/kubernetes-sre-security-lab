@@ -194,7 +194,7 @@ Denied MCP tool calls can have HTTP `200` with an MCP error in the response body
 
 The repository contains separate values files so each Holmes release has its own namespace and identity boundary. The built-in Kubernetes, Bash, internet, and default integrations are disabled.
 
-The `holmes` and `operator` namespaces enforce the Kubernetes Pod Security `restricted` standard at version 1.35. Their Helm values set UID/GID 10001, `runAsNonRoot`, `RuntimeDefault` seccomp, `allowPrivilegeEscalation: false`, and drop all Linux capabilities so the pods satisfy that policy.
+The `holmes` and `operator` namespaces enforce the Kubernetes Pod Security `baseline` standard at version 1.35. Their Helm values also apply stronger container hardening: UID/GID 10001, `runAsNonRoot`, `RuntimeDefault` seccomp, `allowPrivilegeEscalation: false`, and dropping all Linux capabilities.
 
 ```bash
 helm repo add robusta https://robusta-charts.storage.googleapis.com
