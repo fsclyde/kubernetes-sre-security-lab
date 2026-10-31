@@ -160,7 +160,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-mcp-to-kubernetes-api
+  name: allow-mcp-dns
   namespace: mcp
 spec:
   podSelector: {}
@@ -173,11 +173,21 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
-    - to:
-        - ipBlock:
-            cidr: 10.96.0.1/32
-      ports:
-        - { protocol: TCP, port: 443 }
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: allow-mcp-to-kubernetes-api
+  namespace: mcp
+spec:
+  selector: all()
+  types: [Egress]
+  egress:
+    - action: Allow
+      destination:
+        services:
+          name: kubernetes
+          namespace: default
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
