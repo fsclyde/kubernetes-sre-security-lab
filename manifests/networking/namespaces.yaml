@@ -13,7 +13,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: kubernetes-sre-security-lab
     network-policy-zone: holmes
-    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: v1.35
 ---
 apiVersion: v1
@@ -23,5 +23,5 @@ metadata:
   labels:
     app.kubernetes.io/part-of: kubernetes-sre-security-lab
     network-policy-zone: operator
-    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: v1.35
