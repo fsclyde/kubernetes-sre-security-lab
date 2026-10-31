@@ -196,6 +196,8 @@ The repository contains separate values files so each Holmes release has its own
 
 The `holmes` and `operator` namespaces enforce the Kubernetes Pod Security `baseline` standard at version 1.35. Their Helm values also apply stronger container hardening: UID/GID 10001, `runAsNonRoot`, `RuntimeDefault` seccomp, `allowPrivilegeEscalation: false`, and dropping all Linux capabilities.
 
+Each release has one replica and uses `maxSurge: 0` with `maxUnavailable: 1` so an upgrade can release the old pod's memory request before scheduling its replacement on a resource-limited kind node. The service may be briefly unavailable during an upgrade.
+
 ```bash
 helm repo add robusta https://robusta-charts.storage.googleapis.com
 helm repo update
