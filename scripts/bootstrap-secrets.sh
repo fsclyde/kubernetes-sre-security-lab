@@ -44,7 +44,7 @@ kubectl -n agentgateway-system create secret generic anthropic-secret \
   --from-literal=Authorization="$ANTHROPIC_API_KEY" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl -n agentgateway-system create secret generic github-mcp-token \
+kubectl -n mcp create secret generic github-mcp-token \
   --from-literal=token="$GITHUB_TOKEN" \
   --from-literal=readonly=true \
   --dry-run=client -o yaml | kubectl apply -f -

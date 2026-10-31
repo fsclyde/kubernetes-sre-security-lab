@@ -99,7 +99,7 @@ kubectl apply -f manifests/keycloak/keycloak.yaml
 kubectl rollout status deployment/keycloak -n identity --timeout=5m
 ```
 
-The Keycloak realm creates separate `holmes` and `operator` confidential clients and uses a 300-second access token lifetime. The GitHub credential and Anthropic API key are stored only as Kubernetes Secrets in the gateway namespace.
+The Keycloak realm creates separate `holmes` and `operator` confidential clients and uses a 300-second access token lifetime. The GitHub token is stored as a Secret in `mcp`, where the GitHub MCP backend is defined. The Anthropic API key is stored in `agentgateway-system`.
 
 ## 5. Deploy the demo app and GitHub MCP
 
@@ -110,7 +110,17 @@ kubectl rollout status deployment/demo-web -n demo --timeout=3m
 kubectl rollout status deployment/github-mcp -n mcp --timeout=3m
 ```
 
-The GitHub MCP container runs in HTTP mode. Its upstream token and `X-MCP-Readonly` header are injected by the gateway backend. The network policy allows this one pod outbound HTTPS; Kubernetes NetworkPolicy does not provide domain-based egress matching, so the allowed public IP range is broad.
+The GitHub MCP container runs in HTTP mode and does not receive the token from Holmes. For each proxied GitHub MCP request, agentgateway adds the GitHub token and `X-MCP-Readonly: true` header before forwarding the request to the GitHub MCP server. The MCP server then uses that token to call GitHub's API.
+
+```mermaid
+flowchart LR
+    A[Holmes or operator] -->|MCP request, Keycloak JWT| G[agentgateway]
+    S[(GitHub token Secret<br/>namespace mcp)] -->|backend credential| G
+    G -->|request + GitHub token<br/>X-MCP-Readonly: true| M[GitHub MCP<br/>namespace mcp]
+    M -->|HTTPS :443| GH[GitHub API]
+```
+
+The NetworkPolicy permits the GitHub MCP pod to make outbound TCP connections on port 443. Standard Kubernetes NetworkPolicy matches IP addresses and ports, not DNS names such as `api.github.com`; the `0.0.0.0/0` rule therefore allows HTTPS to any IPv4 address. It is intentionally limited to this pod and port, but is broader than a GitHub-only allowlist.
 
 ## 6. Apply the Gateway API routes and policies
 
@@ -145,6 +155,25 @@ HOLMES_TOKEN="$(curl --fail --silent --show-error \
 ```
 
 The Gateway routes are `/mcp` for GitHub MCP, `/mcp/k8s-read` and `/mcp/k8s-write` for the Kubernetes MCP servers, and `/v1/messages` for Anthropic.
+
+After these routes and policies are applied, agent traffic follows this path:
+
+```mermaid
+flowchart TD
+    H[Holmes client] -->|Bearer token| G[agentgateway]
+    O[Operator client] -->|Bearer token| G
+    K[Keycloak JWKS] -->|signature keys| G
+    G -->|JWT valid; client and tool allowed| R{Route by path}
+    R -->|/mcp| GH[GitHub MCP<br/>read-only header + token]
+    R -->|/mcp/k8s-read| KR[Read-only Kubernetes MCP]
+    R -->|/mcp/k8s-write<br/>operator only| KW[Write Kubernetes MCP]
+    R -->|/v1/messages| A[Anthropic<br/>gateway-held API key]
+    KR -->|read-only ServiceAccount| API[Kubernetes API]
+    KW -->|Deployment-only ServiceAccount| API
+    GH -->|HTTPS| GHA[GitHub API]
+```
+
+The Gateway validates the Keycloak JWT before routing. Its policy allows the `holmes` and `operator` clients for investigation/read routes and restricts the write-capable MCP backend to the `operator` client. Kubernetes RBAC separately limits what each MCP server can do at the API.
 
 ## 7. Deploy HolmesGPT and the operator release
 
