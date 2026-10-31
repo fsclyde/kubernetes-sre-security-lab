@@ -21,11 +21,6 @@ mcp_servers:
       mode: streamable-http
       extra_headers:
         Authorization: "{{ request_context.headers['Authorization'] }}"
-    allowed_tools:
-      - get_file_contents
-      - list_commits
-      - list_issues
-      - get_issue
   kubernetes_read:
     description: Read-only Kubernetes investigation tools for the demo namespace
     config:
@@ -33,14 +28,6 @@ mcp_servers:
       mode: streamable-http
       extra_headers:
         Authorization: "{{ request_context.headers['Authorization'] }}"
-    allowed_tools:
-      - events_list
-      - pods_get
-      - pods_list
-      - pods_list_in_namespace
-      - pods_log
-      - resources_get
-      - resources_list
 additionalEnvVars:
   - name: HOLMES_PASSTHROUGH_BLOCKED_HEADERS
     value: cookie,set-cookie
