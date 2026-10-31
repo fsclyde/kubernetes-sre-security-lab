@@ -200,13 +200,13 @@ spec:
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
-  name: keycloak-jwt
+  name: keycloak-jwt-github
   namespace: agentgateway-system
 spec:
   targetRefs:
     - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: agentgateway-proxy
+      kind: HTTPRoute
+      name: github-mcp
   traffic:
     jwtAuthentication:
       mode: Strict
@@ -231,6 +231,56 @@ spec:
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata:
+  name: keycloak-jwt-kubernetes
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: kubernetes-mcp
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab
+          jwks:
+            remote:
+              jwksPath: /realms/sre-lab/protocol/openid-connect/certs
+              cacheDuration: 5m
+              backendRef:
+                group: ""
+                kind: Service
+                name: keycloak
+                namespace: identity
+                port: 8080
+    authorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          - "jwt.azp == 'holmes' || jwt.azp == 'operator'"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: anthropic-client-key
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: anthropic
+  traffic:
+    apiKeyAuthentication:
+      mode: Strict
+      secretRef:
+        name: anthropic-client-keys
+      location:
+        header:
+          name: x-api-key
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
   name: github-tool-rbac
   namespace: mcp
 spec:
@@ -242,6 +292,9 @@ spec:
     mcp:
       authorization:
         action: Allow
+        policy:
+          matchExpressions:
+            - "jwt.azp == 'operator'"
         policy:
           matchExpressions:
             - "(jwt.azp == 'holmes' || jwt.azp == 'operator') && mcp.tool.name in ['get_file_contents', 'list_commits', 'list_issues', 'get_issue']"
