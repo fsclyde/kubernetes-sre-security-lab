@@ -167,6 +167,30 @@ The script obtains fresh Holmes and operator tokens and tests Gateway authentica
 VERBOSE=1 /bin/bash scripts/smoke-test.sh
 ```
 
+### End-to-end Holmes investigation
+
+Keep the Keycloak and Holmes port-forwards from section 6 running. This request calls Anthropic and uses model API credits. Name the GitHub repository in the prompt so Holmes can look up its commits.
+
+```bash
+source .local/lab-secrets.env
+
+HOLMES_TOKEN="$(curl --fail --silent --show-error \
+  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
+  --user "holmes:$HOLMES_CLIENT_SECRET" \
+  --data-urlencode grant_type=client_credentials \
+  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token \
+  | jq -er '.access_token')"
+
+curl --fail-with-body --silent --show-error \
+  http://localhost:5050/api/chat \
+  -H "Authorization: Bearer $HOLMES_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"ask":"Investigate demo-web in namespace demo. Read its Deployment, pods, events, logs, and recent GitHub commits in fsclyde/kubernetes-sre-security-lab. Identify the likely cause and recommend a fix. Do not change anything. Keep the answer to 5 concise bullets max: cause, key evidence, and recommended fix. Skip the investigation narration. If a tool fails, name the failing tool and exact error in one sentence.","model":"claude-sonnet"}' \
+| jq -r '.analysis // .response // .detail // .'
+```
+
+A healthy demo may return “No issue detected.” If it cannot find GitHub commits, confirm the GitHub MCP token has read access to this repository and that the repository name appears in the request.
+
 The primary security boundaries are:
 
 | Mechanism | Enforced boundary |
