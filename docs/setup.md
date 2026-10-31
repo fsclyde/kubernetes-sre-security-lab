@@ -142,17 +142,26 @@ Start a second port-forward for Keycloak in another terminal:
 kubectl port-forward -n identity svc/keycloak 8081:8080
 ```
 
-Then use Keycloak's client-credentials flow to get a temporary token, after setting the client secret from `.local/lab-secrets.env`:
+Then use Keycloak's client-credentials flow to get a temporary token, after setting the client secret from `.local/lab-secrets.env`. Use the in-cluster service hostname in the request URL so the token's `iss` claim matches the Gateway policy. `--connect-to` sends that request through the local port-forward:
 
 ```bash
 set -a
 source .local/lab-secrets.env
 set +a
 HOLMES_TOKEN="$(curl --fail --silent --show-error \
+  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
   -u "holmes:${HOLMES_CLIENT_SECRET}" \
   -d grant_type=client_credentials \
-  http://localhost:8081/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
+  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
 ```
+
+Confirm the token issuer before using it:
+
+```bash
+python3 -c 'import os,json,base64; p=os.environ["HOLMES_TOKEN"].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*((4-len(p)%4)%4)))["iss"])'
+```
+
+It should print `http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab`.
 
 The Gateway routes are `/mcp` for GitHub MCP, `/mcp/k8s-read` and `/mcp/k8s-write` for the Kubernetes MCP servers, and `/v1/messages` for Anthropic.
 
