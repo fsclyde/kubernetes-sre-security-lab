@@ -27,6 +27,8 @@ Enable one control at a time and repeat the proof: require badges, authorize too
 
 A commit changes the image tag and makes the application unavailable. Holmes gathers Kubernetes state and GitHub history, identifies the faulty change, and reads the malicious issue. Holmes cannot modify the cluster. The operator applies a fix, and the application becomes healthy again.
 
+Invoke the investigator and operator through their separate Holmes API deployments as documented in the [setup guide](setup.md). Mint a fresh Keycloak token for each request: Holmes can only investigate, while the operator can use the write MCP route. Review Holmes's recommendation before sending the repair request to the operator. The operator release is learner-triggered; it does not watch for incidents or repair workloads automatically.
+
 ## DETECT
 
 - Review agentgateway logs: `azp=holmes` for investigation, `azp=operator` for repair, plus denial reasons and quota events.
