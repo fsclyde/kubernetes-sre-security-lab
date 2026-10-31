@@ -91,7 +91,7 @@ Create a fine-grained GitHub token for the GitHub MCP server:
 4. Under **Repository permissions**, set **Contents: Read-only** and **Issues: Read-only**. Leave every other permission at **No access**. GitHub automatically includes the required read-only Metadata permission.
 5. Generate the token and copy it. GitHub shows the token only once.
 
-Have an Anthropic API key ready as well. The bootstrap script prompts for both values and stores them in ignored `.local/` files with owner-only permissions. The gateway injects the GitHub token into GitHub MCP and sets its `X-MCP-Readonly` header; do not grant write permissions.
+Have an Anthropic API key ready as well. The bootstrap script prompts for both values, generates separate short-lived Keycloak client secrets and model-gateway client keys, then stores them in ignored `.local/` files with owner-only permissions. It creates Kubernetes Secrets for the Anthropic provider key, model client keys, Keycloak, and GitHub MCP. The gateway injects the GitHub token into GitHub MCP and sets its `X-MCP-Readonly` header; do not grant write permissions.
 
 ```bash
 ./scripts/bootstrap-secrets.sh
@@ -99,7 +99,7 @@ kubectl apply -f manifests/keycloak/keycloak.yaml
 kubectl rollout status deployment/keycloak -n identity --timeout=5m
 ```
 
-The Keycloak realm creates separate `holmes` and `operator` confidential clients and uses a 300-second access token lifetime. The GitHub token is stored as a Secret in `mcp`, where the GitHub MCP backend is defined. The Anthropic API key is stored in `agentgateway-system`.
+The Keycloak realm creates separate `holmes` and `operator` confidential clients and uses a 300-second access token lifetime. Holmes requesters pass a fresh Keycloak access token with each Holmes API request; Holmes forwards that token only on its MCP calls. Model calls use separate generated client keys, and the gateway replaces those with its Anthropic provider credential. The GitHub token is stored as a Secret in `mcp`, where the GitHub MCP backend is defined. The Anthropic API key and model client keys are stored in `agentgateway-system`.
 
 ## 5. Deploy the demo app and GitHub MCP
 
@@ -130,7 +130,7 @@ kubectl get gateway,httproute,agentgatewaybackend,agentgatewaypolicy -A
 kubectl get pods -n agentgateway-system
 ```
 
-The Gateway accepts only Keycloak JWTs. The GitHub MCP backend has a tool allowlist, and only the `operator` client can reach the write-capable Kubernetes MCP backend. The Anthropic credential remains with agentgateway. Port-forward for local inspection:
+GitHub and Kubernetes MCP routes require Keycloak JWTs. The Anthropic route requires a separate generated client key; the Gateway keeps the provider key. The GitHub MCP backend has a tool allowlist, and only the `operator` client can reach the write-capable Kubernetes MCP backend. Port-forward for local inspection:
 
 ```bash
 kubectl port-forward -n agentgateway-system svc/agentgateway-proxy 8080:80
@@ -157,13 +157,13 @@ flowchart TD
     R -->|/mcp| GH[GitHub MCP<br/>read-only header + token]
     R -->|/mcp/k8s-read| KR[Read-only Kubernetes MCP]
     R -->|/mcp/k8s-write<br/>operator only| KW[Write Kubernetes MCP]
-    R -->|/v1/messages| A[Anthropic<br/>gateway-held API key]
+    R -->|/v1/messages<br/>model client key| A[Anthropic<br/>gateway-held provider key]
     KR -->|read-only ServiceAccount| API[Kubernetes API]
     KW -->|Deployment-only ServiceAccount| API
     GH -->|HTTPS| GHA[GitHub API]
 ```
 
-The Gateway validates the Keycloak JWT before routing. Its policy allows the `holmes` and `operator` clients for investigation/read routes and restricts the write-capable MCP backend to the `operator` client. Kubernetes RBAC separately limits what each MCP server can do at the API.
+The Gateway validates Keycloak JWTs on MCP routes and authorizes the `holmes` and `operator` clients for investigation/read routes. It restricts the write-capable MCP backend to the `operator` client. The Anthropic route uses separate generated client keys so the model client does not need a static, expiring Keycloak token. Kubernetes RBAC separately limits what each MCP server can do at the API.
 
 ## Quick smoke test
 
@@ -211,7 +211,56 @@ helm upgrade --install operator robusta/holmes \
   --values manifests/operator/values.yaml --wait --timeout 10m
 ```
 
-The two releases provide separate HolmesGPT deployments for investigation and repair. Connect their MCP and model clients to the authenticated gateway endpoints. Automated Keycloak client-credentials refresh inside the Holmes chart is still an integration item; do not put a long-lived bearer token in a ConfigMap or values file. The operator should be activated by the learner only for the repair step.
+The two releases provide separate HolmesGPT deployments for investigation and repair. Their values connect to the Gateway MCP routes and Anthropic model endpoint. The investigator has only GitHub and Kubernetes read tools. The operator has those read tools plus the Kubernetes write route; Gateway policy and Kubernetes RBAC constrain that route to the operator identity and Deployment changes in `demo`.
+
+The Holmes API receives the user's short-lived Keycloak bearer token on each request and forwards it to the MCP tools. `HOLMES_PASSTHROUGH_BLOCKED_HEADERS` permits this header to reach the configured MCP servers; the values do not contain a static bearer token. The model gateway keys are generated by the bootstrap script, stored in Kubernetes Secrets, and are distinct from the Anthropic provider key. The operator is a separate Holmes API deployment that the learner invokes for the repair step; it is not automatically triggered by Holmes.
+
+After both deployments are ready, open these port-forwards in separate terminals:
+
+```bash
+kubectl port-forward -n holmes deployment/holmes-holmes 5050:5050
+kubectl port-forward -n operator deployment/operator-holmes 5051:5050
+```
+
+With the Keycloak port-forward from above still running, mint the Holmes token and ask it to investigate without changing anything:
+
+```bash
+source .local/lab-secrets.env
+HOLMES_TOKEN="$(curl --fail --silent --show-error \
+  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
+  --user "holmes:$HOLMES_CLIENT_SECRET" \
+  --data-urlencode grant_type=client_credentials \
+  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
+
+curl --fail-with-body --silent --show-error http://localhost:5050/api/chat \
+  -H "Authorization: Bearer $HOLMES_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"ask":"Investigate demo-web in namespace demo. Read its Deployment, pods, events, logs, and recent GitHub commits. Identify the likely cause and recommend a fix. Do not change anything.","model":"claude-sonnet"}'
+```
+
+After reviewing Holmes's evidence, mint the separate operator token and request the repair explicitly:
+
+```bash
+OPERATOR_TOKEN="$(curl --fail --silent --show-error \
+  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
+  --user "operator:$OPERATOR_CLIENT_SECRET" \
+  --data-urlencode grant_type=client_credentials \
+  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
+
+curl --fail-with-body --silent --show-error http://localhost:5051/api/chat \
+  -H "Authorization: Bearer $OPERATOR_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"ask":"Repair demo-web in namespace demo using the evidence from the investigation. Read the current Deployment first, restore its image to nginx:1.27.5-alpine, and report the change. Do not modify any other resource.","model":"claude-sonnet"}'
+```
+
+Verify the workload recovers:
+
+```bash
+kubectl rollout status deployment/demo-web -n demo --timeout=3m
+kubectl get deployment demo-web -n demo -o jsonpath='{.spec.template.spec.containers[0].image}{"\\n"}'
+```
+
+The operator prompt asks for a repair, but authorization is enforced independently: the Gateway requires the operator identity on the write MCP route and Kubernetes RBAC permits only Deployment updates in `demo`.
 
 If the namespaces already exist, apply the updated labels and confirm them before upgrading the releases:
 
