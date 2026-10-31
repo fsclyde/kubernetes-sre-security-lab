@@ -189,13 +189,14 @@ if [[ "${VERBOSE:-0}" == "1" ]]; then
 fi
 expect_body 'Invalid token rejected by Gateway' 'HTTP/[0-9.]+ 401'
 
-# GitHub route: Holmes can connect, while a write tool is filtered by the allowlist.
+# GitHub MCP v2.0.2 uses the consolidated issue_write tool. The gateway allowlist
+# excludes it, so the empty-arguments probe is denied before tool validation.
 start_mcp_session 'Holmes → GitHub MCP' '/mcp' "$HOLMES_TOKEN"
-tool_call 'Holmes create_issue is denied' '/mcp' "$HOLMES_TOKEN" 'create_issue' '{}'
-expect_body 'Holmes cannot create GitHub issues' 'unknown resource|authorization failed|authorization denied'
+tool_call 'Holmes issue_write is denied' '/mcp' "$HOLMES_TOKEN" 'issue_write' '{}'
+expect_body 'Holmes cannot create GitHub issues' 'unknown resource|unknown tool|authorization failed|authorization denied'
 start_mcp_session 'Operator → GitHub MCP' '/mcp' "$OPERATOR_TOKEN"
-tool_call 'Operator create_issue is denied' '/mcp' "$OPERATOR_TOKEN" 'create_issue' '{}'
-expect_body 'Operator cannot create GitHub issues' 'unknown resource|authorization failed|authorization denied'
+tool_call 'Operator issue_write is denied' '/mcp' "$OPERATOR_TOKEN" 'issue_write' '{}'
+expect_body 'Operator cannot create GitHub issues' 'unknown resource|unknown tool|authorization failed|authorization denied'
 
 # Holmes may read the demo Deployment, but cannot read Secrets or access write tools.
 start_mcp_session 'Holmes → Kubernetes read MCP' '/mcp/k8s-read' "$HOLMES_TOKEN"
@@ -219,7 +220,7 @@ expect_body 'Holmes cannot modify Deployments' 'forbidden|unknown resource|unkno
 start_mcp_session 'Holmes → Kubernetes write MCP (denial probe)' '/mcp/k8s-write' "$HOLMES_TOKEN"
 tool_call 'Holmes pod-delete attempt is denied' '/mcp/k8s-write' "$HOLMES_TOKEN" 'pods_delete' \
   "{\"name\":\"curl-test-pod-$PROBE_SUFFIX\",\"namespace\":\"demo\"}"
-expect_body 'Holmes cannot use the write backend' 'unknown resource|authorization failed|authorization denied'
+expect_body 'Holmes cannot use the write backend' 'unknown resource|unknown tool|authorization failed|authorization denied'
 
 # Operator may use the write backend, but its Kubernetes ServiceAccount is limited to Deployments in demo.
 start_mcp_session 'Operator → Kubernetes write MCP' '/mcp/k8s-write' "$OPERATOR_TOKEN"
