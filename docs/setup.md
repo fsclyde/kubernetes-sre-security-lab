@@ -173,7 +173,13 @@ With both port-forwards from section 6 still running, run this from the reposito
 /bin/bash scripts/smoke-test.sh
 ```
 
-The script obtains short-lived tokens and prints each `curl -i` response, including the HTTP status, headers, and response body. It checks successful reads and these expected denials:
+The script obtains short-lived tokens and prints one brief `PASS` or `FAIL` line per check, including the HTTP status and a short denial reason where applicable. To print the full `curl -i` headers and response bodies for troubleshooting, run:
+
+```bash
+VERBOSE=1 /bin/bash scripts/smoke-test.sh
+```
+
+It checks successful reads and these expected denials:
 
 | Identity | The test expects it to be unable to... | Enforced by |
 | --- | --- | --- |
@@ -182,7 +188,7 @@ The script obtains short-lived tokens and prints each `curl -i` response, includ
 
 The operator can read and update Deployments in `demo`; its Kubernetes ServiceAccount has no permissions on other namespaces or resource types. Holmes can read the allowed resources in `demo`, but has no write backend.
 
-Denied MCP tool calls can have HTTP `200` with an MCP error in the response body, so the script checks the body as well as the status. Look for `unknown resource` on Gateway denials and `forbidden` on Kubernetes RBAC denials. The test prints those live `curl` responses before each `PASS` or `FAIL` line. It uses fake names for Kubernetes probes and sends no model request, so it makes no cluster changes and incurs no Anthropic API usage. Use the [lab runbook](lab-runbook.md) for the full security exercise and proof criteria.
+Denied MCP tool calls can have HTTP `200` with an MCP error in the response body, so the script checks the body as well as the status. Brief results identify `unknown resource` for Gateway denials and `forbidden` for Kubernetes RBAC denials. The test uses fake names for Kubernetes probes and sends no model request, so it makes no cluster changes and incurs no Anthropic API usage. Use the [lab runbook](lab-runbook.md) for the full security exercise and proof criteria.
 
 ## 7. Deploy HolmesGPT and the operator release
 
