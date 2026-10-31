@@ -167,13 +167,11 @@ The script obtains fresh Holmes and operator tokens and tests Gateway authentica
 VERBOSE=1 /bin/bash scripts/smoke-test.sh
 ```
 
-### End-to-end investigation and repair
+### Investigation and repair test
 
-This exercise makes a temporary Deployment change, calls Anthropic, and uses model API credits. Keep the Keycloak, Holmes (`5050`), and operator (`5051`) port-forwards from section 6 running. Start from a healthy deployment.
+Keep the Keycloak, Holmes (`5050`), and operator (`5051`) port-forwards running. This test changes the demo Deployment and uses Anthropic API credits. Start from a healthy deployment.
 
-#### Part 1: Holmes investigates without changing anything
-
-Create a failed rollout with a deliberately nonexistent image:
+Trigger a failed rollout:
 
 ```bash
 kubectl set image deployment/demo-web web=nginx:does-not-exist-lab -n demo
@@ -181,7 +179,7 @@ kubectl rollout status deployment/demo-web -n demo --timeout=60s || true
 kubectl get deployment,pods -n demo
 ```
 
-Mint a fresh Holmes token and ask for an investigation. Review the result before proceeding; Holmes should identify the image pull failure and recommend restoring `nginx:1.27.5-alpine`.
+Mint a fresh Holmes token and ask it to investigate. The request names the GitHub repository so Holmes can check its commits.
 
 ```bash
 source .local/lab-secrets.env
@@ -201,9 +199,7 @@ curl --fail-with-body --silent --show-error \
 | jq -r '.analysis // .response // .detail // .'
 ```
 
-#### Part 2: The operator applies the reviewed fix
-
-Mint a separate operator token and request only the Deployment image repair:
+Review Holmes's findings. It should identify the invalid image and recommend `nginx:1.27.5-alpine`; Holmes must not make changes. Then mint a separate operator token and ask the operator to apply that reviewed fix:
 
 ```bash
 OPERATOR_TOKEN="$(curl --fail --silent --show-error \
@@ -221,7 +217,7 @@ curl --fail-with-body --silent --show-error \
 | jq -r '.analysis // .response // .detail // .'
 ```
 
-Verify recovery:
+Check that the Deployment recovered:
 
 ```bash
 kubectl rollout status deployment/demo-web -n demo --timeout=3m
@@ -229,7 +225,25 @@ kubectl get deployment demo-web -n demo \
   -o jsonpath='{.spec.template.spec.containers[0].image}{"\\n"}'
 ```
 
-The image should be `nginx:1.27.5-alpine`. Holmes uses a read-only identity; only the separately authenticated operator can use the write MCP route.
+The image should be `nginx:1.27.5-alpine`.
+
+### Inspect runtime and Kubernetes API activity
+
+Falco reports runtime events matched by its rules. Query recent Falco events:
+
+```bash
+kubectl get pods -n falco
+kubectl logs -n falco -l app.kubernetes.io/name=falco \
+  --all-containers=true --since=30m \
+| jq -Rr 'fromjson? | select(.rule != null) | [.time // "", .priority // "", .rule, .output // ""] | @tsv'
+```
+
+The current Falco setup does not ingest Kubernetes API audit records. To inspect the API actions made by the Kubernetes MCP ServiceAccounts, query the audit log separately:
+
+```bash
+jq -r 'select(.user.username | startswith("system:serviceaccount:mcp:")) | [.requestReceivedTimestamp, .user.username, .verb, .objectRef.namespace, .objectRef.resource, .objectRef.name, .responseStatus.code] | @tsv' \
+  .local/k8s-audit/audit.log
+```
 
 The primary security boundaries are:
 
