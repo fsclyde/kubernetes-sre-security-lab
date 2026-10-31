@@ -142,26 +142,7 @@ Start a second port-forward for Keycloak in another terminal:
 kubectl port-forward -n identity svc/keycloak 8081:8080
 ```
 
-Then use Keycloak's client-credentials flow to get a temporary token, after setting the client secret from `.local/lab-secrets.env`. Use the in-cluster service hostname in the request URL so the token's `iss` claim matches the Gateway policy. `--connect-to` sends that request through the local port-forward:
-
-```bash
-set -a
-source .local/lab-secrets.env
-set +a
-HOLMES_TOKEN="$(curl --fail --silent --show-error \
-  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
-  -u "holmes:${HOLMES_CLIENT_SECRET}" \
-  -d grant_type=client_credentials \
-  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token | jq -r .access_token)"
-```
-
-Confirm the token issuer before using it:
-
-```bash
-printf '%s' "$HOLMES_TOKEN" | python3 -c 'import sys,json,base64; p=sys.stdin.read().strip().split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*((4-len(p)%4)%4)))["iss"])'
-```
-
-It should print `http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab`.
+Keep both port-forwards running in separate terminals. The smoke-test script below obtains short-lived Holmes and operator tokens from Keycloak for you; you do not need to copy or decode tokens manually.
 
 The Gateway routes are `/mcp` for GitHub MCP, `/mcp/k8s-read` and `/mcp/k8s-write` for the Kubernetes MCP servers, and `/v1/messages` for Anthropic.
 
@@ -183,6 +164,16 @@ flowchart TD
 ```
 
 The Gateway validates the Keycloak JWT before routing. Its policy allows the `holmes` and `operator` clients for investigation/read routes and restricts the write-capable MCP backend to the `operator` client. Kubernetes RBAC separately limits what each MCP server can do at the API.
+
+## Quick smoke test
+
+With both port-forwards from section 6 still running, run this from the repository root:
+
+```bash
+/bin/bash scripts/smoke-test.sh
+```
+
+It checks that requests without a token are rejected (`HTTP 401`), then checks that Holmes can initialize the GitHub and Kubernetes read MCP routes and the operator can initialize the Kubernetes write MCP route (`HTTP 2xx`). It does not call Anthropic, so it will not make a billable model request. This is a quick connectivity check; use the [lab runbook](lab-runbook.md) for the security exercise and deeper proof criteria.
 
 ## 7. Deploy HolmesGPT and the operator release
 
