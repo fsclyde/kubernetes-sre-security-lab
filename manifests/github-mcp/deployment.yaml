@@ -27,10 +27,10 @@ spec:
             - name: GITHUB_TOOLSETS
               value: repos,issues,pull_requests
           readinessProbe:
-            httpGet: { path: /health, port: http }
+            tcpSocket: { port: http }
             initialDelaySeconds: 5
           livenessProbe:
-            httpGet: { path: /health, port: http }
+            tcpSocket: { port: http }
             initialDelaySeconds: 15
           resources:
             requests: { cpu: 50m, memory: 64Mi }
