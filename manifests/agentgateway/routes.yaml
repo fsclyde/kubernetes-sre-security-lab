@@ -33,7 +33,8 @@ spec:
         key: token
       credentials:
         - location:
-            header: X-MCP-Readonly
+            header:
+              name: X-MCP-Readonly
           secretRef:
             name: github-mcp-token
             key: readonly
