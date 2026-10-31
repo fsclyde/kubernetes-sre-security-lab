@@ -14,7 +14,7 @@ Review [known validation gaps](validation-gaps.md) before adapting the lab for p
 - [6. Deploy HolmesGPT and the operator](#6-deploy-holmesgpt-and-the-operator)
 - [7. Apply network policies and verify RBAC](#7-apply-network-policies-and-verify-rbac)
 - [8. Test the lab](#8-test-the-lab)
-- [9. Optional runtime detection](#9-optional-runtime-detection)
+- [9. Runtime visibility](#9-runtime-visibility)
 - [10. Clean up](#10-clean-up)
 - [11. Troubleshooting](#11-troubleshooting)
 
@@ -227,23 +227,45 @@ kubectl get deployment demo-web -n demo \
 
 The image should be `nginx:1.27.5-alpine`.
 
-### Inspect runtime and Kubernetes API activity
+### Verify Gateway traffic and agent egress
 
-Falco reports runtime events matched by its rules. Query recent Falco events:
+agentgateway writes a structured access log for each request it processes. After the test, inspect MCP and model routes:
 
 ```bash
-kubectl get pods -n falco
-kubectl logs -n falco -l app.kubernetes.io/name=falco \
-  --all-containers=true --since=30m \
-| jq -Rr 'fromjson? | select(.rule != null) | [.time // "", .priority // "", .rule, .output // ""] | @tsv'
+kubectl logs -n agentgateway-system deployment/agentgateway-proxy --since=30m \
+| grep -E 'http.path=/mcp|http.path=/v1/messages'
 ```
 
-The current Falco setup does not ingest Kubernetes API audit records. To inspect the API actions made by the Kubernetes MCP ServiceAccounts, query the audit log separately:
+Look for the request path, status, `jwt.sub`, `mcp.method.name=tools/call`, and tool name. The request to Holmes's local `/api/chat` endpoint itself does not pass through agentgateway; Holmes's model and MCP calls should.
+
+Check that NetworkPolicies prevent Holmes from bypassing the Gateway to reach the Kubernetes API or external model/GitHub endpoints:
+
+```bash
+for ns in holmes operator; do
+  pod="$(kubectl get pods -n "$ns" -l app=holmes -o jsonpath='{.items[0].metadata.name}')"
+  kubectl exec -n "$ns" "$pod" -- python -c '
+import socket
+for host, port in [("kubernetes.default.svc.cluster.local", 443), ("api.anthropic.com", 443), ("api.github.com", 443)]:
+    try:
+        conn = socket.create_connection((host, port), 3)
+        conn.close()
+        print("UNEXPECTED direct connection:", host)
+    except OSError:
+        print("Blocked:", host)
+'
+done
+```
+
+All three direct connections should be blocked from both agent namespaces. The Kubernetes MCP servers connect to the API using their own ServiceAccounts after agentgateway authorizes the MCP calls.
+
+Inspect the matching Kubernetes API activity. These audit records identify the MCP ServiceAccount and operation; correlate their timestamps with Gateway tool-call logs:
 
 ```bash
 jq -r 'select(.user.username | startswith("system:serviceaccount:mcp:")) | [.requestReceivedTimestamp, .user.username, .verb, .objectRef.namespace, .objectRef.resource, .objectRef.name, .responseStatus.code] | @tsv' \
   .local/k8s-audit/audit.log
 ```
+
+The current Falco configuration reports runtime events matched by its rules but does not ingest the Kubernetes audit log. Use the API audit query above for a record of Kubernetes API requests; Gateway logs cover MCP/model requests.
 
 The primary security boundaries are:
 
@@ -256,9 +278,9 @@ The primary security boundaries are:
 | Pod Security restricted | Runs Holmes and operator without root, privilege escalation, or extra capabilities |
 | Kubernetes audit policy | Records API activity for review in .local/k8s-audit/audit.log |
 
-## 9. Optional runtime detection
+## 9. Runtime visibility
 
-Falco provides runtime events:
+Falco is optional. Install it for runtime events matched by its rules:
 
 ```bash
 helm repo add falcosecurity https://falcosecurity.github.io/charts
@@ -268,22 +290,16 @@ helm upgrade --install falco falcosecurity/falco \
   --values manifests/falco/values.yaml --wait --timeout 10m
 ```
 
-Tetragon requires Linux kernel BTF/eBPF support. Check the kind node first:
+View recent Falco events:
 
 ```bash
-./scripts/check-tetragon-kernel.sh
+kubectl get pods -n falco
+kubectl logs -n falco -l app.kubernetes.io/name=falco \
+  --all-containers=true --since=30m \
+| jq -Rr 'fromjson? | select(.rule != null) | [.time // "", .priority // "", .rule, .output // ""] | @tsv'
 ```
 
-On a supported native Linux host, install it with:
-
-```bash
-helm repo add cilium https://helm.cilium.io
-helm repo update
-helm upgrade --install tetragon cilium/tetragon \
-  --namespace kube-system --wait --timeout 10m
-```
-
-Docker Desktop may not expose the kernel features Tetragon needs. Falco and Tetragon are optional.
+The Kubernetes API audit log is written separately to `.local/k8s-audit/audit.log`. The current Falco values do not configure the Kubernetes audit plugin/webhook; use the audit query in section 8 to inspect cluster API actions.
 
 ## 10. Clean up
 
