@@ -167,9 +167,21 @@ The script obtains fresh Holmes and operator tokens and tests Gateway authentica
 VERBOSE=1 /bin/bash scripts/smoke-test.sh
 ```
 
-### End-to-end Holmes investigation
+### End-to-end investigation and repair
 
-Keep the Keycloak and Holmes port-forwards from section 6 running. This request calls Anthropic and uses model API credits. Name the GitHub repository in the prompt so Holmes can look up its commits.
+This exercise makes a temporary Deployment change, calls Anthropic, and uses model API credits. Keep the Keycloak, Holmes (`5050`), and operator (`5051`) port-forwards from section 6 running. Start from a healthy deployment.
+
+#### Part 1: Holmes investigates without changing anything
+
+Create a failed rollout with a deliberately nonexistent image:
+
+```bash
+kubectl set image deployment/demo-web web=nginx:does-not-exist-lab -n demo
+kubectl rollout status deployment/demo-web -n demo --timeout=60s || true
+kubectl get deployment,pods -n demo
+```
+
+Mint a fresh Holmes token and ask for an investigation. Review the result before proceeding; Holmes should identify the image pull failure and recommend restoring `nginx:1.27.5-alpine`.
 
 ```bash
 source .local/lab-secrets.env
@@ -189,7 +201,35 @@ curl --fail-with-body --silent --show-error \
 | jq -r '.analysis // .response // .detail // .'
 ```
 
-A healthy demo may return “No issue detected.” If it cannot find GitHub commits, confirm the GitHub MCP token has read access to this repository and that the repository name appears in the request.
+#### Part 2: The operator applies the reviewed fix
+
+Mint a separate operator token and request only the Deployment image repair:
+
+```bash
+OPERATOR_TOKEN="$(curl --fail --silent --show-error \
+  --connect-to keycloak.identity.svc.cluster.local:8080:127.0.0.1:8081 \
+  --user "operator:$OPERATOR_CLIENT_SECRET" \
+  --data-urlencode grant_type=client_credentials \
+  http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token \
+  | jq -er '.access_token')"
+
+curl --fail-with-body --silent --show-error \
+  http://localhost:5051/api/chat \
+  -H "Authorization: Bearer $OPERATOR_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"ask":"Repair demo-web in namespace demo. Read its current Deployment, then change only the web container image to nginx:1.27.5-alpine. Report the change and do not modify any other resource.","model":"claude-sonnet"}' \
+| jq -r '.analysis // .response // .detail // .'
+```
+
+Verify recovery:
+
+```bash
+kubectl rollout status deployment/demo-web -n demo --timeout=3m
+kubectl get deployment demo-web -n demo \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\\n"}'
+```
+
+The image should be `nginx:1.27.5-alpine`. Holmes uses a read-only identity; only the separately authenticated operator can use the write MCP route.
 
 The primary security boundaries are:
 
