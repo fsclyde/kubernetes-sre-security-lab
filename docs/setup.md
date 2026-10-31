@@ -29,7 +29,7 @@ cd kubernetes-sre-security-lab
 
 ## 3. Create the audited cluster and install Calico
 
-The cluster disables kind's default CNI so Calico can enforce NetworkPolicies. Prepare the audit mount paths before creating the cluster.
+The cluster disables kind's default CNI so Calico can enforce NetworkPolicies. Kubernetes 1.35 keeps the `MutatingAdmissionPolicy` feature gate off by default; the kind configuration enables it because Calico 3.33's native CRD manifest uses that API. Prepare the audit mount paths before creating the cluster.
 
 ```bash
 mkdir -p .local/k8s-audit
