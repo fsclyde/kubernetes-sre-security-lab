@@ -158,7 +158,7 @@ HOLMES_TOKEN="$(curl --fail --silent --show-error \
 Confirm the token issuer before using it:
 
 ```bash
-python3 -c 'import os,json,base64; p=os.environ["HOLMES_TOKEN"].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*((4-len(p)%4)%4)))["iss"])'
+printf '%s' "$HOLMES_TOKEN" | python3 -c 'import sys,json,base64; p=sys.stdin.read().strip().split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p+"="*((4-len(p)%4)%4)))["iss"])'
 ```
 
 It should print `http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab`.
