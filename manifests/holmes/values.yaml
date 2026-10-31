@@ -13,7 +13,47 @@ toolsets:
   bash: { enabled: false }
 config:
   builtin_allowlist: ""
-  mcp_servers: {}
+  mcp_servers:
+    github_read:
+      description: Read-only access to this lab's GitHub repository
+      config:
+        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp
+        mode: streamable-http
+        extra_headers:
+          Authorization: "{{ request_context.headers['Authorization'] }}"
+      allowed_tools:
+        - get_file_contents
+        - list_commits
+        - list_issues
+        - get_issue
+    kubernetes_read:
+      description: Read-only Kubernetes investigation tools for the demo namespace
+      config:
+        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/k8s-read
+        mode: streamable-http
+        extra_headers:
+          Authorization: "{{ request_context.headers['Authorization'] }}"
+      allowed_tools:
+        - events_list
+        - pods_get
+        - pods_list
+        - pods_list_in_namespace
+        - pods_log
+        - resources_get
+        - resources_list
+additionalEnvVars:
+  - name: HOLMES_PASSTHROUGH_BLOCKED_HEADERS
+    value: cookie,set-cookie
+  - name: MODEL
+    value: claude-sonnet
+extraEnvVarsSecrets:
+  - agentgateway-model-credentials
+modelList:
+  claude-sonnet:
+    api_key: envRef:AGENTGATEWAY_MODEL_API_KEY
+    api_base: http://agentgateway-proxy.agentgateway-system.svc.cluster.local
+    model: anthropic/claude-sonnet-4-5-20250929
+    temperature: 0
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001
