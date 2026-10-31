@@ -72,12 +72,11 @@ The sample values are in [`../manifests/holmes/values.yaml`](../manifests/holmes
 
 ### Observability
 
-- **agentgateway logs:** Keycloak identity, requested tool, decision, and denial reason.
-- **Kubernetes audit:** accepted or denied API calls by identity and resource. Record Secret access at Metadata level only; exclude sensitive request bodies from audit records.
-- **Falco:** consumes Kubernetes audit events and alerts on writes by the read-only account, Secret access, `exec`, and access outside `demo`.
-- **Tetragon:** adds visibility into processes and network connections initiated by agent pods.
+- **agentgateway access logs:** one structured record per request processed by the Gateway, including route, MCP method/tool, status, and authenticated subject when available.
+- **Kubernetes audit log:** records API requests made by the MCP ServiceAccounts, including verb, resource, namespace, and response code. Secret access is Metadata-only.
+- **Falco:** reports runtime events that match its enabled rules. The current chart values do not connect Falco to the Kubernetes audit log.
 
-Falco and Tetragon provide complementary views. Neither replaces Kubernetes RBAC or agentgateway logs.
+Use Gateway logs for model/MCP traffic and API audit records for cluster changes. Correlate them by time and tool; Kubernetes sees the MCP ServiceAccount, not the original agent identity in the baseline configuration. These logs provide a strong activity trail, but Falco alone does not record every agent action.
 
 ## Advanced step: end-to-end agent identity
 
