@@ -14,8 +14,9 @@ Review [known validation gaps](validation-gaps.md) before adapting the lab for p
 - [6. Deploy HolmesGPT and the operator](#6-deploy-holmesgpt-and-the-operator)
 - [7. Apply network policies and verify RBAC](#7-apply-network-policies-and-verify-rbac)
 - [8. Test the lab](#8-test-the-lab)
-- [9. Clean up](#9-clean-up)
-- [10. Troubleshooting](#10-troubleshooting)
+- [9. Runtime visibility with Falco](#9-runtime-visibility-with-falco)
+- [10. Clean up](#10-clean-up)
+- [11. Troubleshooting](#11-troubleshooting)
 
 ## 1. Prerequisites
 
@@ -264,7 +265,7 @@ jq -r 'select(.user.username | startswith("system:serviceaccount:mcp:")) | [.req
   .local/k8s-audit/audit.log
 ```
 
-Use the API audit query above for a record of Kubernetes API requests; Gateway logs cover MCP/model requests.
+Gateway logs identify caller and MCP/model requests; the Kubernetes audit file records API operations by the MCP ServiceAccounts. Falco provides the syscall-level view described in section 9. Correlate the sources by timestamp; none alone guarantees a complete record of every agent action.
 
 The primary security boundaries are:
 
@@ -277,7 +278,43 @@ The primary security boundaries are:
 | Pod Security restricted | Runs Holmes and operator without root, privilege escalation, or extra capabilities |
 | Kubernetes audit policy | Records API activity for review in .local/k8s-audit/audit.log |
 
-## 9. Clean up
+## 9. Runtime visibility with Falco
+
+Install Falco's DaemonSet with broad syscall collection and a rule scoped to Holmes, operator, MCP, and Gateway pods. The `base_syscalls.all` setting enables every syscall event type supported by Falco. This can produce high log volume and use more CPU and memory.
+
+```bash
+helm repo add falcosecurity https://falcosecurity.github.io/charts
+helm repo update
+helm upgrade --install falco falcosecurity/falco \
+  --namespace falco --create-namespace --version 9.1.0 \
+  --values manifests/falco/values.yaml --wait --timeout 10m
+
+kubectl get pods -n falco -o wide
+```
+
+Generate a harmless syscall in the Holmes container, then inspect the Falco record:
+
+```bash
+AGENT_POD="$(kubectl get pods -n holmes -l app=holmes -o jsonpath='{.items[0].metadata.name}')"
+kubectl exec -n holmes "$AGENT_POD" -- \
+  /venv/bin/python3 -c 'import os; os.stat("/etc/hostname")'
+
+kubectl logs -n falco -l app.kubernetes.io/name=falco \
+  --all-containers=true --since=2m \
+| jq -Rr 'fromjson? | select(.rule == "Agent container syscall activity") | [.time // "", .output] | @tsv'
+```
+
+The output should include the Holmes namespace, pod, process, and syscall. Repeat after the repair test and inspect the operator, MCP, and Gateway namespaces as well. Check Falco logs for startup errors and syscall event-drop warnings:
+
+```bash
+kubectl logs -n falco -l app.kubernetes.io/name=falco \
+  --all-containers=true --since=30m \
+| grep -Ei 'error|drop|buffer'
+```
+
+A Falco rule is an event detector, not a guarantee of a complete action ledger. This configuration records supported syscall events for the selected pods; event drops, unsupported event types, and application-level intent are limits. Use agentgateway access logs for caller/tool identity and Kubernetes audit records for API requests. Kubernetes audit logs remain at `.local/k8s-audit/audit.log`; this Falco setup does not ingest that file through the k8saudit plugin.
+
+## 10. Clean up
 
 ```bash
 kind delete cluster --name agent-security-lab
@@ -285,7 +322,7 @@ kind delete cluster --name agent-security-lab
 
 This leaves .local files, including credentials and audit logs. Remove .local manually when they are no longer needed.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Holmes MCP tools return 401 from agentgateway
 
