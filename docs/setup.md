@@ -14,9 +14,8 @@ Review [known validation gaps](validation-gaps.md) before adapting the lab for p
 - [6. Deploy HolmesGPT and the operator](#6-deploy-holmesgpt-and-the-operator)
 - [7. Apply network policies and verify RBAC](#7-apply-network-policies-and-verify-rbac)
 - [8. Test the lab](#8-test-the-lab)
-- [9. Runtime visibility](#9-runtime-visibility)
-- [10. Clean up](#10-clean-up)
-- [11. Troubleshooting](#11-troubleshooting)
+- [9. Clean up](#9-clean-up)
+- [10. Troubleshooting](#10-troubleshooting)
 
 ## 1. Prerequisites
 
@@ -265,7 +264,7 @@ jq -r 'select(.user.username | startswith("system:serviceaccount:mcp:")) | [.req
   .local/k8s-audit/audit.log
 ```
 
-The current Falco configuration reports runtime events matched by its rules but does not ingest the Kubernetes audit log. Use the API audit query above for a record of Kubernetes API requests; Gateway logs cover MCP/model requests.
+Use the API audit query above for a record of Kubernetes API requests; Gateway logs cover MCP/model requests.
 
 The primary security boundaries are:
 
@@ -278,30 +277,7 @@ The primary security boundaries are:
 | Pod Security restricted | Runs Holmes and operator without root, privilege escalation, or extra capabilities |
 | Kubernetes audit policy | Records API activity for review in .local/k8s-audit/audit.log |
 
-## 9. Runtime visibility
-
-Falco is optional. Install it for runtime events matched by its rules:
-
-```bash
-helm repo add falcosecurity https://falcosecurity.github.io/charts
-helm repo update
-helm upgrade --install falco falcosecurity/falco \
-  --namespace falco --create-namespace \
-  --values manifests/falco/values.yaml --wait --timeout 10m
-```
-
-View recent Falco events:
-
-```bash
-kubectl get pods -n falco
-kubectl logs -n falco -l app.kubernetes.io/name=falco \
-  --all-containers=true --since=30m \
-| jq -Rr 'fromjson? | select(.rule != null) | [.time // "", .priority // "", .rule, .output // ""] | @tsv'
-```
-
-The Kubernetes API audit log is written separately to `.local/k8s-audit/audit.log`. The current Falco values do not configure the Kubernetes audit plugin/webhook; use the audit query in section 8 to inspect cluster API actions.
-
-## 10. Clean up
+## 9. Clean up
 
 ```bash
 kind delete cluster --name agent-security-lab
@@ -309,7 +285,7 @@ kind delete cluster --name agent-security-lab
 
 This leaves .local files, including credentials and audit logs. Remove .local manually when they are no longer needed.
 
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 ### Holmes MCP tools return 401 from agentgateway
 
