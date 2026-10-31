@@ -294,9 +294,6 @@ spec:
         action: Allow
         policy:
           matchExpressions:
-            - "jwt.azp == 'operator'"
-        policy:
-          matchExpressions:
             - "(jwt.azp == 'holmes' || jwt.azp == 'operator') && mcp.tool.name in ['get_file_contents', 'list_commits', 'list_issues', 'get_issue']"
 ---
 apiVersion: agentgateway.dev/v1alpha1
