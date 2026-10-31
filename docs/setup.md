@@ -317,6 +317,53 @@ kubectl exec -n holmes "$HOLMES_POD" -- python -c 'import socket; s=socket.creat
     -p='[{"op":"replace","path":"/spec/podSelector","value":{"matchLabels":{"app":"holmes"}}}]'
   ```
 
+### Test Gateway network paths
+
+The Holmes socket check above confirms only Holmes-to-Gateway connectivity. To test the Gateway pod's own network path to the MCP services and external HTTPS endpoints, start an ephemeral debug container in the Gateway pod. It shares that pod's network namespace. Find the data-plane pod and open a shell:
+
+```bash
+GATEWAY_POD="$(kubectl get pods -n agentgateway-system \
+  -l app.kubernetes.io/name=agentgateway-proxy \
+  -o jsonpath='{.items[0].metadata.name}')"
+kubectl debug -n agentgateway-system -it "pod/$GATEWAY_POD" \
+  --image=curlimages/curl:8.11.1 --target=agentgateway-proxy -- sh
+```
+
+At the debug shell prompt, probe each MCP service and the outbound HTTPS destinations:
+
+```sh
+for url in \
+  http://github-mcp.mcp.svc.cluster.local:8082/ \
+  http://k8s-mcp-read.mcp.svc.cluster.local:8080/ \
+  http://k8s-mcp-write.mcp.svc.cluster.local:8080/ \
+  https://api.anthropic.com/ \
+  https://api.github.com/; do
+  printf '%s: ' "$url"
+  curl --silent --show-error --output /dev/null \
+    --write-out 'HTTP %{http_code}; remote=%{remote_ip}\n' \
+    --connect-timeout 5 --max-time 10 "$url" || echo "connection failed"
+done
+exit
+```
+
+An HTTP status (including `401`, `404`, or `405`) means DNS, TCP, and HTTP reached a server; it does not confirm the MCP route, credentials, or authorization are correct. `000`, a curl error, or a timeout indicates a DNS, network-policy, service, or endpoint problem. These probes make only unauthenticated GET requests; they do not call the Anthropic model API or create GitHub resources.
+
+For an end-to-end check through Gateway authentication, route matching, and backend forwarding, run the smoke test from the repository root with the port-forwards from section 6 active:
+
+```bash
+/bin/bash scripts/smoke-test.sh
+```
+
+If the pod-level probes pass but the smoke test fails, inspect Gateway routes/policies and MCP service endpoints:
+
+```bash
+kubectl get httproute,agentgatewaypolicy -n agentgateway-system
+kubectl get svc,endpointslice -n mcp
+kubectl get pods -n mcp -o wide
+```
+
+A missing EndpointSlice address usually means the MCP pod is not Ready or the Service selector does not match. A TCP timeout from the Gateway debug shell points to the Gateway pod's egress path or the backend Service; a fast HTTP error points to an application path/protocol or auth issue.
+
 ## 9. Optional runtime detection
 
 Install Falco for runtime events:
