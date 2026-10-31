@@ -16,6 +16,8 @@ config:
   mcp_servers: {}
 podSecurityContext:
   runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
   seccompProfile:
     type: RuntimeDefault
 automountServiceAccountToken: false
