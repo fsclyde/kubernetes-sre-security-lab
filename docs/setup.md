@@ -209,6 +209,8 @@ helm upgrade --install operator robusta/holmes \
 
 The two releases provide separate HolmesGPT deployments for investigation and repair. Connect their MCP and model clients to the authenticated gateway endpoints. Automated Keycloak client-credentials refresh inside the Holmes chart is still an integration item; do not put a long-lived bearer token in a ConfigMap or values file. The operator should be activated by the learner only for the repair step.
 
+Both values files set the Holmes container UID and GID to `10001` while keeping `runAsNonRoot` enabled. This is required because the image metadata reports root; without an explicit non-root UID, Kubernetes rejects container creation before Holmes starts.
+
 ## 8. Apply NetworkPolicies and verify RBAC
 
 Apply default-deny and allow rules only after required components are running:
