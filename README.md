@@ -10,7 +10,7 @@ A hands-on lab for securing an AI SRE workflow on Kubernetes. HolmesGPT investig
 - **Tool and Kubernetes RBAC:** keep Holmes read-only and limit operator changes to Deployments in `demo`.
 - **Secret handling:** keep the Anthropic key and GitHub token outside agent containers.
 - **NetworkPolicy + Pod Security:** restrict workload egress and run agent pods with the restricted profile.
-- **Activity trail:** Gateway access logs show model/MCP requests; Kubernetes audit logs show API actions.
+- **Activity trail:** Falco records supported syscalls in agent, MCP, and Gateway pods; Gateway logs show model/MCP requests; Kubernetes audit logs show API actions.
 
 ## Scenario
 
@@ -30,6 +30,11 @@ flowchart LR
     R --> API[Kubernetes API]
     W --> API
     API --> AUD[Kubernetes audit log]
+    H -. syscalls .-> F[Falco]
+    O -. syscalls .-> F
+    GH -. runtime .-> F
+    R -. runtime .-> F
+    W -. runtime .-> F
 ```
 
 Holmes cannot read Secrets, write resources, execute commands in pods, or access other namespaces. The operator can update Deployments only in `demo`.
@@ -41,7 +46,7 @@ Holmes cannot read Secrets, write resources, execute commands in pods, or access
 - [Lab runbook and proof criteria](docs/lab-runbook.md)
 - [Known validation gaps](docs/validation-gaps.md)
 
-Other configuration: [RBAC](manifests/rbac/demo-roles.yaml) · [Gateway](manifests/agentgateway/routes.yaml) · [Keycloak](manifests/keycloak/) · [MCP servers](manifests/mcp/) · [Demo and GitHub MCP](manifests/demo/) · [NetworkPolicies](manifests/networking/policies.yaml)
+Other configuration: [Falco runtime rules](manifests/falco/values.yaml) · [RBAC](manifests/rbac/demo-roles.yaml) · [Gateway](manifests/agentgateway/routes.yaml) · [Keycloak](manifests/keycloak/) · [MCP servers](manifests/mcp/) · [Demo and GitHub MCP](manifests/demo/) · [NetworkPolicies](manifests/networking/policies.yaml)
 
 ## Prerequisites
 
