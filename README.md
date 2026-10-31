@@ -2,11 +2,12 @@
 
 This lab demonstrates how to control and observe an SRE agent investigating and repairing a Kubernetes incident. HolmesGPT reads cluster state and a demo GitHub repository. A separate operator agent can repair the deployment. Keycloak authenticates each agent, agentgateway protects calls to the model and MCP servers, and Kubernetes RBAC limits the actions each identity can perform.
 
-> **Status: end-to-end lab configuration in progress.** The repository includes manifests and setup steps for Keycloak, HolmesGPT, an operator release, authenticated agentgateway routes, a demo workload, GitHub MCP, Calico NetworkPolicies, and Falco/Tetragon installation. The full stack still needs a local environment run-through before it can be described as verified.
+> **Status: end-to-end lab configuration in progress.** The repository configures HolmesGPT and a separate operator release to use agentgateway for MCP and model requests. The full stack still needs a local environment run-through before it can be described as verified.
 
 ## What the lab demonstrates
 
-- Agents authenticate with short-lived Keycloak tokens.
+- Agents authenticate to MCP routes with short-lived Keycloak tokens forwarded per API request.
+- Each agent uses its own Gateway model key; the Anthropic provider key stays in the Gateway namespace.
 - The gateway exposes only the tools allowed for each agent role.
 - Holmes remains read-only, including when a GitHub issue contains a prompt injection.
 - The model API key and GitHub token stay outside agent containers.
@@ -22,8 +23,8 @@ A demo application is installed in `demo` from version-controlled manifests. A c
 
 ```mermaid
 flowchart LR
-    H[HolmesGPT] -->|Keycloak token| G[agentgateway]
-    O[Operator agent] -->|Keycloak token| G
+    H[HolmesGPT] -->|Keycloak token for MCP; Gateway model key| G[agentgateway]
+    O[Operator agent] -->|Keycloak token for MCP; Gateway model key| G
     K[Keycloak] -->|JWKS and roles| G
     G -->|k8s-read role| R[Read-only Kubernetes MCP]
     G -->|k8s-write role| W[Write Kubernetes MCP]
@@ -64,7 +65,7 @@ Generate secrets locally at startup, exclude them from Git, and rotate them when
 
 This repository provides the threat model, scenario, namespace-scoped RBAC, audit profile, gateway routes and policies, Keycloak realm, demo workload, GitHub MCP, Holmes chart values, Calico NetworkPolicies, and setup instructions. Falco and Tetragon are optional components; Tetragon depends on the kernel exposed by the local `kind` node. Review [known validation gaps](docs/validation-gaps.md) before treating the setup as verified.
 
-The full foundation command sequence, including the pinned agentgateway control plane and Kubernetes MCP server charts, is in [the setup guide](docs/setup.md). The RBAC manifest can be applied to a disposable cluster and checked with:
+The full setup sequence and Holmes investigation/operator repair requests are in [the setup guide](docs/setup.md). The RBAC manifest can be applied to a disposable cluster and checked with:
 
 ```bash
 kubectl apply -f manifests/rbac/demo-roles.yaml
