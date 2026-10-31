@@ -304,6 +304,14 @@ kubectl exec -n holmes "$HOLMES_POD" -- python -c 'import socket; s=socket.creat
 ## Troubleshooting
 
 - **Holmes returns HTTP 200 but says it has no Kubernetes or GitHub tools:** verify `mcp_servers` is a top-level value in `manifests/holmes/values.yaml` and `manifests/operator/values.yaml`, then rerun the Helm upgrades above. HTTP 200 only means Holmes produced a response; it does not prove the MCP investigation ran.
+- **Holmes logs `Toolset 'github_read' is invalid` or `Toolset 'kubernetes_read' is invalid` with `extra_forbidden`:** the Holmes 0.45.0 `RemoteMCPToolset` schema rejects the `allowed_tools` field in the MCP server definition. The lab values omit that field; upgrade both releases to apply them. Do not enable Holmes's built-in Kubernetes toolsets to work around this: the Gateway routes and MCP backend policies are the intended access path. Gateway tool authorization and Kubernetes RBAC enforce the actual restrictions; Holmes-side tool filtering is not relied on.
+
+  ```bash
+  helm upgrade --install holmes robusta/holmes \
+    --namespace holmes --values manifests/holmes/values.yaml --wait --timeout 10m
+  helm upgrade --install operator robusta/holmes \
+    --namespace operator --values manifests/operator/values.yaml --wait --timeout 10m
+  ```
 - **Model request returns `401 authentication failure: no bearer token found`:** check for and remove a leftover Gateway-wide `keycloak-jwt` policy as shown in section 6. Keep the route-specific `keycloak-jwt-github`, `keycloak-jwt-kubernetes`, and `anthropic-client-key` policies.
 - **Holmes times out connecting to agentgateway:** check that the egress policy selector matches the pod label (`app=holmes`), then apply `manifests/networking/policies.yaml` again. Do not use a merge patch to add a selector label: selectors require all listed labels to match. If patching a live policy, replace the complete selector, for example:
 
