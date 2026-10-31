@@ -4,7 +4,7 @@ The scenario follows the NIST functions, separating the open baseline from the p
 
 ## SETUP
 
-Create a `kind` cluster and deploy agentgateway v1.6.0, Keycloak, the read and write Kubernetes MCP servers, GitHub MCP, HolmesGPT, and the operator agent. Install the demo application in `demo`. Kubernetes audit logs are written separately by the API server.
+Create a `kind` cluster and deploy agentgateway v1.6.0, Keycloak, the read and write Kubernetes MCP servers, GitHub MCP, HolmesGPT, the operator agent, and Falco. Install the demo application in `demo`. Kubernetes audit logs are written separately by the API server.
 
 ## GOVERN
 
@@ -32,7 +32,8 @@ Invoke the investigator and operator through their separate Holmes API deploymen
 ## DETECT
 
 - Review agentgateway logs: `azp=holmes` for investigation, `azp=operator` for repair, plus denial reasons and quota events.
-- Correlate Gateway access logs with Kubernetes audit records by timestamp, MCP tool, and ServiceAccount.
+- Correlate Gateway access logs, Kubernetes audit records, and Falco syscall events by timestamp, tool, pod, and ServiceAccount.
+- Confirm Falco's agent-activity rule is firing for the Holmes, operator, MCP, and Gateway namespaces, and check for event-drop warnings.
 
 ## RESPOND
 
