@@ -10,6 +10,8 @@ if [[ ! -f "$LOCAL_DIR/lab-secrets.env" ]]; then
   umask 077
   HOLMES_CLIENT_SECRET="$(openssl rand -hex 32)"
   OPERATOR_CLIENT_SECRET="$(openssl rand -hex 32)"
+  HOLMES_MODEL_GATEWAY_KEY="$(openssl rand -hex 32)"
+  OPERATOR_MODEL_GATEWAY_KEY="$(openssl rand -hex 32)"
   KEYCLOAK_ADMIN_PASSWORD="$(openssl rand -hex 24)"
   read -r -s -p "Anthropic API key: " ANTHROPIC_API_KEY
   printf '\n'
@@ -18,6 +20,8 @@ if [[ ! -f "$LOCAL_DIR/lab-secrets.env" ]]; then
   cat > "$LOCAL_DIR/lab-secrets.env" <<EOF
 HOLMES_CLIENT_SECRET=$HOLMES_CLIENT_SECRET
 OPERATOR_CLIENT_SECRET=$OPERATOR_CLIENT_SECRET
+HOLMES_MODEL_GATEWAY_KEY=$HOLMES_MODEL_GATEWAY_KEY
+OPERATOR_MODEL_GATEWAY_KEY=$OPERATOR_MODEL_GATEWAY_KEY
 KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 GITHUB_TOKEN=$GITHUB_TOKEN
@@ -29,6 +33,20 @@ set -a
 # shellcheck disable=SC1090
 source "$LOCAL_DIR/lab-secrets.env"
 set +a
+
+# Add the model-gateway client keys when upgrading an older local secrets file.
+if [[ -z "${HOLMES_MODEL_GATEWAY_KEY:-}" || -z "${OPERATOR_MODEL_GATEWAY_KEY:-}" ]]; then
+  umask 077
+  HOLMES_MODEL_GATEWAY_KEY="${HOLMES_MODEL_GATEWAY_KEY:-$(openssl rand -hex 32)}"
+  OPERATOR_MODEL_GATEWAY_KEY="${OPERATOR_MODEL_GATEWAY_KEY:-$(openssl rand -hex 32)}"
+  if ! grep -q '^HOLMES_MODEL_GATEWAY_KEY=' "$LOCAL_DIR/lab-secrets.env"; then
+    printf 'HOLMES_MODEL_GATEWAY_KEY=%s\n' "$HOLMES_MODEL_GATEWAY_KEY" >> "$LOCAL_DIR/lab-secrets.env"
+  fi
+  if ! grep -q '^OPERATOR_MODEL_GATEWAY_KEY=' "$LOCAL_DIR/lab-secrets.env"; then
+    printf 'OPERATOR_MODEL_GATEWAY_KEY=%s\n' "$OPERATOR_MODEL_GATEWAY_KEY" >> "$LOCAL_DIR/lab-secrets.env"
+  fi
+  chmod 600 "$LOCAL_DIR/lab-secrets.env"
+fi
 
 mkdir -p "$LOCAL_DIR/keycloak-import"
 envsubst '${HOLMES_CLIENT_SECRET} ${OPERATOR_CLIENT_SECRET}' \
@@ -42,6 +60,19 @@ kubectl -n identity create secret generic keycloak-admin \
 
 kubectl -n agentgateway-system create secret generic anthropic-secret \
   --from-literal=Authorization="$ANTHROPIC_API_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n agentgateway-system create secret generic anthropic-client-keys \
+  --from-literal=holmes="$HOLMES_MODEL_GATEWAY_KEY" \
+  --from-literal=operator="$OPERATOR_MODEL_GATEWAY_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n holmes create secret generic agentgateway-model-credentials \
+  --from-literal=AGENTGATEWAY_MODEL_API_KEY="$HOLMES_MODEL_GATEWAY_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n operator create secret generic agentgateway-model-credentials \
+  --from-literal=AGENTGATEWAY_MODEL_API_KEY="$OPERATOR_MODEL_GATEWAY_KEY" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n mcp create secret generic github-mcp-token \
