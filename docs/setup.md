@@ -173,7 +173,16 @@ With both port-forwards from section 6 still running, run this from the reposito
 /bin/bash scripts/smoke-test.sh
 ```
 
-It checks that requests without a token are rejected (`HTTP 401`), then checks that Holmes can initialize the GitHub and Kubernetes read MCP routes and the operator can initialize the Kubernetes write MCP route (`HTTP 2xx`). It does not call Anthropic, so it will not make a billable model request. This is a quick connectivity check; use the [lab runbook](lab-runbook.md) for the security exercise and deeper proof criteria.
+The script obtains short-lived tokens and prints each `curl -i` response, including the HTTP status, headers, and response body. It checks successful reads and these expected denials:
+
+| Identity | The test expects it to be unable to... | Enforced by |
+| --- | --- | --- |
+| Holmes | Create a GitHub issue; use the Kubernetes write backend; read a Secret or anything outside `demo`; modify Deployments; delete or exec into Pods | Gateway tool allowlist, read-only Kubernetes MCP, and its namespace-scoped ServiceAccount RBAC |
+| Operator | Create a GitHub issue; read a Secret; delete or exec into Pods; modify Deployments outside `demo` | Gateway GitHub tool allowlist and Kubernetes MCP ServiceAccount RBAC |
+
+The operator can read and update Deployments in `demo`; its Kubernetes ServiceAccount has no permissions on other namespaces or resource types. Holmes can read the allowed resources in `demo`, but has no write backend.
+
+Denied MCP tool calls can have HTTP `200` with an MCP error in the response body, so the script checks the body as well as the status. Look for `unknown resource` on Gateway denials and `forbidden` on Kubernetes RBAC denials. The test prints those live `curl` responses before each `PASS` or `FAIL` line. It uses fake names for Kubernetes probes and sends no model request, so it makes no cluster changes and incurs no Anthropic API usage. Use the [lab runbook](lab-runbook.md) for the full security exercise and proof criteria.
 
 ## 7. Deploy HolmesGPT and the operator release
 
