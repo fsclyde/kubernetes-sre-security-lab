@@ -242,6 +242,25 @@ If a request to /api/chat succeeds but MCP calls fail, confirm the Authorization
 
 Holmes 0.45.0 rejects allowed_tools in remote MCP server definitions. The supplied values omit it. Reapply the Helm values from section 6; do not enable built-in Kubernetes toolsets as a workaround.
 
+### Kubernetes MCP calls time out
+
+If MCP initialization succeeds but `tools/call` returns HTTP 500 with `upstream call timeout`, inspect the API endpoint, MCP logs, and write ServiceAccount permission:
+
+```bash
+kubectl get svc kubernetes -n default -o wide
+kubectl get endpointslice -n default \
+  -l kubernetes.io/service-name=kubernetes -o wide
+kubectl logs -n mcp deployment/k8s-mcp-write --since=10m
+kubectl auth can-i get deployments -n demo \
+  --as=system:serviceaccount:mcp:k8s-mcp-write
+```
+
+If the MCP logs show API discovery timeouts and the RBAC check returns `yes`, egress to the API is blocked. The Service ClusterIP and its endpoint can use different addresses and ports (for example, `10.96.0.1:443` may route to `172.19.0.3:6443`). The lab's Calico policy matches the `default/kubernetes` Service so it follows the actual endpoint. Apply the updated policy:
+
+```bash
+kubectl apply -f manifests/networking/policies.yaml
+```
+
 ### Holmes has no Kubernetes or GitHub tools
 
 Keep mcp_servers at the top level of the values files. Upgrade both Holmes releases using section 6 and inspect their logs. Tool definitions load from the MCP services.
