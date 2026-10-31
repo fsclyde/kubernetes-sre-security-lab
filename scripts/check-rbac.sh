@@ -12,7 +12,10 @@ check() {
   shift 2
 
   local actual
-  actual="$(kubectl auth can-i "$@")"
+  # kubectl auth can-i exits 1 when the answer is "no". Capture that expected
+  # status without letting set -e terminate the script; an empty response still
+  # fails the check below instead of being mistaken for an authorization result.
+  actual="$(kubectl auth can-i "$@" || true)"
   if [[ "$actual" == "$expected" ]]; then
     printf '[PASS] %s -> %s\n' "$description" "$actual"
     PASS=$((PASS + 1))
