@@ -73,9 +73,10 @@ The sample values are in [`../manifests/holmes/values.yaml`](../manifests/holmes
 ### Observability
 
 - **agentgateway access logs:** one structured record per request processed by the Gateway, including route, MCP method/tool, status, and authenticated subject when available.
+- **Falco syscall events:** a custom rule records all syscall event types supported by Falco for pods in `holmes`, `operator`, `mcp`, and `agentgateway-system`. This can produce high log volume; monitor event-drop warnings and resource use.
 - **Kubernetes audit log:** records API requests made by the MCP ServiceAccounts, including verb, resource, namespace, and response code. Secret access is Metadata-only.
 
-Use Gateway logs for model/MCP traffic and API audit records for cluster changes. Correlate them by time and tool; Kubernetes sees the MCP ServiceAccount, not the original agent identity in the baseline configuration. Together, these provide an activity trail for requests processed by the Gateway and Kubernetes API actions.
+Use Gateway logs for caller identity and model/MCP tool calls, Kubernetes audit for API operations, and Falco for process and kernel activity in selected pods. Correlate by time, tool, pod, and ServiceAccount. Kubernetes sees the MCP ServiceAccount, not the original agent identity in the baseline configuration. These sources provide complementary evidence, not a guarantee that every possible action is recorded; unsupported syscalls, event drops, and application-level semantics remain limits.
 
 ## Advanced step: end-to-end agent identity
 
