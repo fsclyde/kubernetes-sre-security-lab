@@ -10,6 +10,7 @@ BASE_URL="${GATEWAY_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token"
 PROTOCOL_VERSION="2025-03-26"
 FAILURES=0
+PASSES=0
 
 if [[ ! -f "$SECRETS_FILE" ]]; then
   echo "Missing .local/lab-secrets.env. Run ./scripts/bootstrap-secrets.sh first." >&2
@@ -42,10 +43,19 @@ LAST_RESPONSE=""
 NEXT_REQUEST_ID=2
 PROBE_SUFFIX="$$-$RANDOM"
 
-show_response() {
-  local label="$1"
-  printf '\n--- %s ---\n' "$label"
-  printf '%s\n' "$LAST_RESPONSE"
+set_http_status() {
+  local first_line="${LAST_RESPONSE%%$'\r\n'*}"
+  if [[ "$first_line" =~ ^HTTP/[0-9.]+[[:space:]]([0-9]{3}) ]]; then
+    LAST_STATUS="${BASH_REMATCH[1]}"
+  else
+    LAST_STATUS="unknown"
+  fi
+}
+
+print_verbose_response() {
+  if [[ "${VERBOSE:-0}" == "1" ]]; then
+    printf '%s\n' "$LAST_RESPONSE"
+  fi
 }
 
 post_mcp() {
@@ -72,7 +82,11 @@ post_mcp() {
       -H "MCP-Protocol-Version: $PROTOCOL_VERSION" \
       --data "$body")"
   fi
-  show_response "$label"
+  set_http_status
+  if [[ "${VERBOSE:-0}" == "1" ]]; then
+    printf '\n--- %s ---\n' "$label"
+    print_verbose_response
+  fi
 }
 
 capture_session_id() {
@@ -90,15 +104,24 @@ capture_session_id() {
 }
 
 start_mcp_session() {
-  local label="$1" path="$2" token="$3"
+  local label="$1" path="$2" token="$3" init_status
   post_mcp "$label initialize" "$path" "$token" "$INIT_BODY" initialize
   capture_session_id
-  if [[ ! "$LAST_RESPONSE" =~ ^HTTP/[0-9.]+[[:space:]]2[0-9][0-9] ]]; then
-    echo "Could not initialize $label; check the response above." >&2
+  init_status="$LAST_STATUS"
+  if [[ ! "$init_status" =~ ^2[0-9][0-9]$ ]]; then
+    echo "Could not initialize $label (HTTP $init_status). Set VERBOSE=1 to show the full response." >&2
+    print_verbose_response >&2
     exit 1
   fi
+  PASSES=$((PASSES + 1))
+  printf 'PASS %s initialized (HTTP %s)\n' "$label" "$init_status"
   post_mcp "$label initialized notification" "$path" "$token" \
     '{"jsonrpc":"2.0","method":"notifications/initialized"}' notification
+  if [[ ! "$LAST_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+    printf 'FAIL %s initialized notification (HTTP %s)\n' "$label" "$LAST_STATUS"
+    print_verbose_response >&2
+    exit 1
+  fi
 }
 
 tool_call() {
@@ -112,10 +135,28 @@ tool_call() {
 expect_body() {
   local label="$1" pattern="$2"
   if printf '%s' "$LAST_RESPONSE" | grep -Eiq "$pattern"; then
-    printf 'PASS: %s\n' "$label"
+    PASSES=$((PASSES + 1))
+    printf 'PASS %s (HTTP %s; %s)\n' "$label" "$LAST_STATUS" "$(response_reason)"
   else
-    printf 'FAIL: %s (expected response matching /%s/)\n' "$label" "$pattern"
+    printf 'FAIL %s (HTTP %s; expected /%s/)\n' "$label" "$LAST_STATUS" "$pattern"
     FAILURES=$((FAILURES + 1))
+    print_verbose_response >&2
+  fi
+}
+
+response_reason() {
+  if printf '%s' "$LAST_RESPONSE" | grep -Eiq 'unknown resource'; then
+    echo 'unknown resource'
+  elif printf '%s' "$LAST_RESPONSE" | grep -Eiq 'forbidden'; then
+    echo 'forbidden'
+  elif printf '%s' "$LAST_RESPONSE" | grep -Eiq 'authorization failed|authorization denied'; then
+    echo 'authorization denied'
+  elif printf '%s' "$LAST_RESPONSE" | grep -Eiq 'HTTP/[0-9.]+[[:space:]]401'; then
+    echo 'authentication rejected'
+  elif printf '%s' "$LAST_RESPONSE" | grep -Eiq 'unknown tool'; then
+    echo 'unknown tool'
+  else
+    echo 'expected denial observed'
   fi
 }
 
@@ -123,10 +164,12 @@ expect_success() {
   local label="$1"
   if printf '%s' "$LAST_RESPONSE" | grep -Eiq '^HTTP/[0-9.]+[[:space:]]2[0-9][0-9]' && \
     ! printf '%s' "$LAST_RESPONSE" | grep -Eiq '"isError"[[:space:]]*:[[:space:]]*true|"error"[[:space:]]*:'; then
-    printf 'PASS: %s\n' "$label"
+    PASSES=$((PASSES + 1))
+    printf 'PASS %s (HTTP %s)\n' "$label" "$LAST_STATUS"
   else
-    printf 'FAIL: %s (expected a successful MCP result)\n' "$label"
+    printf 'FAIL %s (HTTP %s; expected successful MCP result)\n' "$label" "$LAST_STATUS"
     FAILURES=$((FAILURES + 1))
+    print_verbose_response >&2
   fi
 }
 
@@ -139,7 +182,11 @@ LAST_RESPONSE="$(curl --silent --show-error --include --request POST "$BASE_URL/
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data "$INIT_BODY")"
-show_response 'Invalid token is rejected'
+set_http_status
+if [[ "${VERBOSE:-0}" == "1" ]]; then
+  printf '\n--- Invalid token is rejected ---\n'
+  print_verbose_response
+fi
 expect_body 'Invalid token rejected by Gateway' 'HTTP/[0-9.]+ 401'
 
 # GitHub route: Holmes can connect, while a write tool is filtered by the allowlist.
@@ -194,9 +241,9 @@ expect_body 'Operator cannot modify Deployments outside demo' 'forbidden|unknown
 
 echo
 if [[ "$FAILURES" -eq 0 ]]; then
-  echo 'All expected authorization outcomes were observed.'
+  printf 'Result: %s checks passed.\n' "$PASSES"
 else
-  echo "$FAILURES authorization check(s) did not match expectations. Review the response bodies above and Gateway/MCP logs."
+  printf 'Result: %s passed; %s failed. Set VERBOSE=1 for full responses; check Gateway/MCP logs for details.\n' "$PASSES" "$FAILURES"
   exit 1
 fi
 echo 'No model request was sent; this test does not incur Anthropic API usage.'
