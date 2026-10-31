@@ -153,7 +153,7 @@ flowchart TD
     H[Holmes client] -->|Bearer token| G[agentgateway]
     O[Operator client] -->|Bearer token| G
     K[Keycloak JWKS] -->|signature keys| G
-    G -->|JWT valid; client and tool allowed| R{Route by path}
+    G -->|Route-specific identity and tool policy pass| R{Route by path}
     R -->|/mcp| GH[GitHub MCP<br/>read-only header + token]
     R -->|/mcp/k8s-read| KR[Read-only Kubernetes MCP]
     R -->|/mcp/k8s-write<br/>operator only| KW[Write Kubernetes MCP]
