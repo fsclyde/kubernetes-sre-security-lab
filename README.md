@@ -13,11 +13,11 @@ This lab demonstrates how to control and observe an SRE agent investigating and 
 - The model API key and GitHub token stay outside agent containers.
 - Model and tool calls are filtered, rate-limited, and logged.
 - Kubernetes permissions are scoped to the `demo` namespace.
-- Falco observes events recorded in Kubernetes audit logs; Tetragon complements that view with process and network events from agent pods.
+- agentgateway access logs record model and MCP requests; Kubernetes audit records cluster API actions; Falco reports runtime events matched by its rules.
 
 ## Scenario
 
-A demo application is installed in `demo` from version-controlled manifests. A commit changes the image tag and breaks the deployment. HolmesGPT investigates Kubernetes and the GitHub repository, then identifies the faulty commit. Holmes also reads a malicious issue, but has no write-capable tool. The operator agent applies the fix. Gateway logs, Kubernetes audit records, Falco, and Tetragon help reconstruct what each agent did.
+A demo application is installed in `demo` from version-controlled manifests. A commit changes the image tag and breaks the deployment. HolmesGPT investigates Kubernetes and the GitHub repository, then identifies the faulty commit. Holmes also reads a malicious issue, but has no write-capable tool. The operator agent applies the fix. Gateway access logs and Kubernetes audit records help reconstruct agent activity; Falco adds runtime alerts.
 
 ## Target architecture
 
@@ -33,8 +33,7 @@ flowchart LR
     R -->|read RoleBinding| API[Kubernetes API]
     W -->|deployment RoleBinding| API
     API --> AUD[Kubernetes audit log]
-    AUD --> F[Falco]
-    H -. process and network events .-> T[Tetragon]
+    H -. runtime events .-> F[Falco]
 ```
 
 The read role cannot read Secrets, write resources, execute commands in pods, or see other namespaces. The write role can change only Deployments in `demo`. The gateway and Kubernetes RBAC enforce separate layers of policy.
@@ -63,7 +62,7 @@ Generate secrets locally at startup, exclude them from Git, and rotate them when
 
 ## Current implementation status
 
-This repository provides the threat model, scenario, namespace-scoped RBAC, audit profile, gateway routes and policies, Keycloak realm, demo workload, GitHub MCP, Holmes chart values, Calico NetworkPolicies, and setup instructions. Falco and Tetragon are optional components; Tetragon depends on the kernel exposed by the local `kind` node. Review [known validation gaps](docs/validation-gaps.md) before treating the setup as verified.
+This repository provides the threat model, scenario, namespace-scoped RBAC, audit profile, gateway routes and policies, Keycloak realm, demo workload, GitHub MCP, Holmes chart values, Calico NetworkPolicies, and setup instructions. Falco is optional. Gateway access logs and Kubernetes audit records provide request and cluster-action visibility. Review [known validation gaps](docs/validation-gaps.md) before treating the setup as verified.
 
 The full setup sequence and Holmes investigation/operator repair requests are in [the setup guide](docs/setup.md). The RBAC manifest can be applied to a disposable cluster and checked with:
 
