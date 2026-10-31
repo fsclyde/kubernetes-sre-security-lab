@@ -1,76 +1,66 @@
 # Kubernetes SRE Security Lab
 
-This lab demonstrates how to control and observe an SRE agent investigating and repairing a Kubernetes incident. HolmesGPT reads cluster state and a demo GitHub repository. A separate operator agent can repair the deployment. Keycloak authenticates each agent, agentgateway protects calls to the model and MCP servers, and Kubernetes RBAC limits the actions each identity can perform.
+A hands-on lab for securing an AI SRE workflow on Kubernetes. HolmesGPT investigates an incident using read-only Kubernetes and GitHub tools. A separately authenticated operator can repair the demo application.
 
-> **Status: end-to-end lab configuration in progress.** The repository configures HolmesGPT and a separate operator release to use agentgateway for MCP and model requests. The full stack still needs a local environment run-through before it can be described as verified.
+> **Status:** Configuration is in progress and still needs a complete local run-through.
 
-## What the lab demonstrates
+## Security controls
 
-- Agents authenticate to MCP routes with short-lived Keycloak tokens forwarded per API request.
-- Each agent uses its own Gateway model key; the Anthropic provider key stays in the Gateway namespace.
-- The gateway exposes only the tools allowed for each agent role.
-- Holmes remains read-only, including when a GitHub issue contains a prompt injection.
-- The model API key and GitHub token stay outside agent containers.
-- Model and tool calls are filtered, rate-limited, and logged.
-- Kubernetes permissions are scoped to the `demo` namespace.
-- agentgateway access logs record model and MCP requests; Kubernetes audit records cluster API actions.
+- **Keycloak + agentgateway:** authenticate Holmes and operator separately; authorize MCP and model requests.
+- **Tool and Kubernetes RBAC:** keep Holmes read-only and limit operator changes to Deployments in `demo`.
+- **Secret handling:** keep the Anthropic key and GitHub token outside agent containers.
+- **NetworkPolicy + Pod Security:** restrict workload egress and run agent pods with the restricted profile.
+- **Activity trail:** Gateway access logs show model/MCP requests; Kubernetes audit logs show API actions.
 
 ## Scenario
 
-A demo application is installed in `demo` from version-controlled manifests. A commit changes the image tag and breaks the deployment. HolmesGPT investigates Kubernetes and the GitHub repository, then identifies the faulty commit. Holmes also reads a malicious issue, but has no write-capable tool. The operator agent applies the fix. Gateway access logs and Kubernetes audit records help reconstruct agent activity.
+A bad image tag makes `demo-web` unavailable. Holmes investigates the Deployment, pods, events, logs, and GitHub history, then recommends a fix. The learner reviews the recommendation and asks the operator to apply it. Holmes cannot make changes.
 
-## Target architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    H[HolmesGPT] -->|Keycloak token for MCP; Gateway model key| G[agentgateway]
-    O[Operator agent] -->|Keycloak token for MCP; Gateway model key| G
+    H[HolmesGPT] -->|Keycloak token / model key| G[agentgateway]
+    O[Operator] -->|Keycloak token / model key| G
     K[Keycloak] -->|JWKS and roles| G
-    G -->|k8s-read role| R[Read-only Kubernetes MCP]
-    G -->|k8s-write role| W[Write Kubernetes MCP]
-    G -->|github-read| GH[GitHub MCP]
-    G -->|model key held by gateway| L[Claude / Anthropic]
-    R -->|read RoleBinding| API[Kubernetes API]
-    W -->|deployment RoleBinding| API
+    G --> R[Read-only Kubernetes MCP]
+    G --> W[Write Kubernetes MCP]
+    G --> GH[GitHub MCP]
+    G --> L[Claude / Anthropic]
+    R --> API[Kubernetes API]
+    W --> API
     API --> AUD[Kubernetes audit log]
 ```
 
-The read role cannot read Secrets, write resources, execute commands in pods, or see other namespaces. The write role can change only Deployments in `demo`. The gateway and Kubernetes RBAC enforce separate layers of policy.
+Holmes cannot read Secrets, write resources, execute commands in pods, or access other namespaces. The operator can update Deployments only in `demo`.
 
-## Contents
+## Start here
 
+- [Setup and test commands](docs/setup.md)
 - [Architecture and threat model](docs/architecture.md)
 - [Lab runbook and proof criteria](docs/lab-runbook.md)
-- [Setup commands](docs/setup.md)
-- [Technical items to validate](docs/validation-gaps.md)
-- [Proposed Kubernetes roles](manifests/rbac/demo-roles.yaml)
-- [Read and write Kubernetes MCP Helm values](manifests/mcp/)
-- [Gateway routes and policies](manifests/agentgateway/routes.yaml)
-- [Keycloak realm and bootstrap](manifests/keycloak/)
-- [Demo app and GitHub MCP](manifests/demo/)
-- [NetworkPolicies](manifests/networking/policies.yaml)
+- [Known validation gaps](docs/validation-gaps.md)
 
-## Expected prerequisites
+Other configuration: [RBAC](manifests/rbac/demo-roles.yaml) · [Gateway](manifests/agentgateway/routes.yaml) · [Keycloak](manifests/keycloak/) · [MCP servers](manifests/mcp/) · [Demo and GitHub MCP](manifests/demo/) · [NetworkPolicies](manifests/networking/policies.yaml)
 
-- Docker Desktop (or Docker Engine), `kind`, `kubectl`, and Helm.
-- An Anthropic API key.
-- A fine-grained GitHub token, read-only and limited to the demo repository.
-- About 10 GB of memory allocated to Docker for the full stack with Keycloak, HolmesGPT, agentgateway, MCP servers, and observability tools.
+## Prerequisites
 
-Generate secrets locally at startup, exclude them from Git, and rotate them when rebuilding the lab. Model usage is billable and varies with the number of calls.
+- Docker Desktop or Docker Engine, `kind`, `kubectl`, Helm, `jq`, and a shell.
+- Anthropic API key and a fine-grained, read-only GitHub token for the demo repository.
+- At least 10 GB of memory allocated to Docker for the full stack.
 
-## Current implementation status
+Model calls may incur charges. Generate credentials locally, keep them out of Git, and rotate them when rebuilding the lab.
 
-This repository provides the threat model, scenario, namespace-scoped RBAC, audit profile, gateway routes and policies, Keycloak realm, demo workload, GitHub MCP, Holmes chart values, Calico NetworkPolicies, and setup instructions. Gateway access logs and Kubernetes audit records provide request and cluster-action visibility. Review [known validation gaps](docs/validation-gaps.md) before treating the setup as verified.
+## Quick checks
 
-The full setup sequence and Holmes investigation/operator repair requests are in [the setup guide](docs/setup.md). The RBAC manifest can be applied to a disposable cluster and checked with:
+Apply the RBAC manifest and verify permissions:
 
 ```bash
 kubectl apply -f manifests/rbac/demo-roles.yaml
 ./scripts/check-rbac.sh
 ```
 
-For audit logging, copy the audit policy to the local path referenced by the cluster config, create the local log directory, and start `kind` (the config and manifests contain no credentials):
+For Kubernetes audit logging, create the local paths before creating the kind cluster:
 
 ```bash
 mkdir -p .local/k8s-audit
@@ -78,4 +68,4 @@ cp kind/audit-policy.yaml .local/audit-policy.yaml
 kind create cluster --config kind/cluster.yaml
 ```
 
-The cluster config enables the Kubernetes audit log and the rule file records Secret access at Metadata level. Continue with the full deployment sequence in [the setup guide](docs/setup.md).
+Continue with the [complete setup guide](docs/setup.md).
