@@ -4,9 +4,9 @@ This document separates documented component features from behavior that still d
 
 | Topic | What to verify | Why it matters |
 | --- | --- | --- |
-| HolmesGPT / agentgateway | HolmesGPT accepts a custom Anthropic endpoint (`api_base`) and routes all model calls through agentgateway | Confirm chart version and model endpoint wiring; the sample values intentionally keep built-in tools disabled |
-| HolmesGPT | Rendered chart defaults, custom MCP auth/token refresh, and ServiceAccount token mounting | Ensure tool calls carry Keycloak tokens; a static token is insufficient for the five-minute token lifespan |
-| Kubernetes MCP Server | Chart `0.1.0`, image `v0.0.67`, `read_only`, toolsets, service labels, and tool names | Values and gateway backends are provided; verify rendered labels, service ports, `appProtocol`, and actual tool names against the chart before connecting agents |
+| HolmesGPT / agentgateway | Rendered chart model configuration and an Anthropic request through the Gateway | Values configure a named Claude model and separate model client keys; verify the exact chart/model behavior with a real local request (this incurs model usage) |
+| HolmesGPT | Rendered MCP configuration and request-context header forwarding with the deployed chart/image | Values forward each caller's short-lived Keycloak token to MCP routes; verify initial tool discovery and real MCP calls in the local cluster |
+| Kubernetes MCP Server | Chart `0.1.0`, image `v0.0.67`, `read_only`, toolsets, service labels, and tool names | Verify rendered labels, service ports, `appProtocol`, and configured tool names against the chart in the local cluster |
 | Baseline identity | Each MCP server uses its own ServiceAccount, one read-only and one write-enabled | Confirm the ServiceAccount token mount and absence of cluster-wide access |
 | GitHub header | agentgateway v1.6.0 injects the token and `X-MCP-Readonly` header on the MCP backend | Confirm GitHub MCP v2.0.2 header handling; egress currently permits TCP 443 to any public IP because Kubernetes NetworkPolicy has no DNS-name match |
 | `kind` and NetworkPolicy | The selected cluster CNI enforces policies while allowing required DNS and egress | Install/configure a compatible CNI if the local cluster does not enforce policies |
@@ -21,6 +21,8 @@ This document separates documented component features from behavior that still d
 
 - [Kubernetes MCP Server configuration](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/configuration.md): `read_only`, `disabled_tools`, toolsets, OAuth, and `cluster_auth_mode`.
 - [JWT with Keycloak in agentgateway](https://agentgateway.dev/docs/kubernetes/latest/documentation/security/jwt/setup/) and [standalone Keycloak integration](https://agentgateway.dev/docs/standalone/latest/integrations/auth/keycloak/).
+- [HolmesGPT MCP servers](https://holmesgpt.dev/dev/data-sources/remote-mcp-servers/), [header propagation](https://holmesgpt.dev/0.22.0/data-sources/header-propagation/), and [Helm model configuration](https://holmesgpt.dev/latest/reference/helm-configuration/).
+- [Agentgateway provider API keys](https://agentgateway.dev/docs/kubernetes/latest/documentation/llm/api-keys/) and [API-key authentication](https://agentgateway.dev/docs/kubernetes/latest/documentation/security/apikey/).
 - [HolmesGPT configuration](https://docs.holmesgpt.dev/).
 
 HolmesGPT and agentgateway links refer to their current documentation. Final examples must match the exact versions pinned by this lab.
