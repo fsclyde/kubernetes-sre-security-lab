@@ -1,0 +1,41 @@
+{
+  "realm": "sre-lab",
+  "enabled": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionMaxLifespan": 300,
+  "roles": {
+    "realm": [
+      {"name": "k8s-read"},
+      {"name": "k8s-write"},
+      {"name": "github-read"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "holmes",
+      "name": "Holmes investigator",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${HOLMES_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": ["roles"]
+    },
+    {
+      "clientId": "operator",
+      "name": "Deployment operator",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPERATOR_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": ["roles"]
+    }
+  ]
+}
