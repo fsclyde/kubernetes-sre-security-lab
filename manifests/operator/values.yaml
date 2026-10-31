@@ -20,4 +20,8 @@ podSecurityContext:
   runAsGroup: 10001
   seccompProfile:
     type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
 automountServiceAccountToken: false
