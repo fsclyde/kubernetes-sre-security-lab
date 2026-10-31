@@ -92,7 +92,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/instance: holmes
+      app: holmes
   policyTypes: [Egress]
   egress:
     - to:
@@ -120,7 +120,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/instance: operator
+      app: holmes
   policyTypes: [Egress]
   egress:
     - to:
