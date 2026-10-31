@@ -1,22 +1,22 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
-# Keep the standard macOS and Homebrew locations available even if this script
-# is launched from a shell whose PATH was customized.
+# Restore standard macOS and Homebrew paths if the calling shell has a broken PATH.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRETS_FILE="$ROOT_DIR/.local/lab-secrets.env"
 BASE_URL="${GATEWAY_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://keycloak.identity.svc.cluster.local:8080/realms/sre-lab/protocol/openid-connect/token"
+PROTOCOL_VERSION="2025-03-26"
+FAILURES=0
 
 if [[ ! -f "$SECRETS_FILE" ]]; then
   echo "Missing .local/lab-secrets.env. Run ./scripts/bootstrap-secrets.sh first." >&2
   exit 1
 fi
-
 if ! command -v curl >/dev/null || ! command -v jq >/dev/null; then
-  echo "This smoke test needs curl and jq. On macOS, run: brew install curl jq" >&2
+  echo "This test needs curl and jq. On macOS, run: brew install curl jq" >&2
   exit 1
 fi
 
@@ -36,45 +36,167 @@ get_token() {
 
 HOLMES_TOKEN="$(get_token holmes "$HOLMES_CLIENT_SECRET")"
 OPERATOR_TOKEN="$(get_token operator "$OPERATOR_CLIENT_SECRET")"
+INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"lab-curl-test","version":"1.0"}}}'
+MCP_SESSION_ID=""
+LAST_RESPONSE=""
+NEXT_REQUEST_ID=2
+PROBE_SUFFIX="$$-$RANDOM"
 
-INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"lab-smoke-test","version":"1.0"}}}'
-
-status_for() {
-  local path="$1" token="${2:-}"
-  curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    --request POST "$BASE_URL$path" \
-    -H 'Content-Type: application/json' \
-    -H 'Accept: application/json, text/event-stream' \
-    -H "Authorization: Bearer $token" \
-    --data "$INIT_BODY"
+show_response() {
+  local label="$1"
+  printf '\n--- %s ---\n' "$label"
+  printf '%s\n' "$LAST_RESPONSE"
 }
 
-expect_status() {
-  local label="$1" expected="$2" actual
-  shift 2
-  actual="$(status_for "$@")"
-  if [[ "$actual" != "$expected" ]]; then
-    printf 'FAIL %-34s expected HTTP %s, got %s\n' "$label" "$expected" "$actual"
-    return 1
+post_mcp() {
+  local label="$1" path="$2" token="$3" body="$4" mode="$5"
+  if [[ "$mode" == initialize ]]; then
+    LAST_RESPONSE="$(curl --silent --show-error --include --request POST "$BASE_URL$path" \
+      -H "Authorization: Bearer $token" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      --data "$body")"
+  elif [[ -n "$MCP_SESSION_ID" ]]; then
+    LAST_RESPONSE="$(curl --silent --show-error --include --request POST "$BASE_URL$path" \
+      -H "Authorization: Bearer $token" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      -H "MCP-Protocol-Version: $PROTOCOL_VERSION" \
+      -H "Mcp-Session-Id: $MCP_SESSION_ID" \
+      --data "$body")"
+  else
+    LAST_RESPONSE="$(curl --silent --show-error --include --request POST "$BASE_URL$path" \
+      -H "Authorization: Bearer $token" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      -H "MCP-Protocol-Version: $PROTOCOL_VERSION" \
+      --data "$body")"
   fi
-  printf 'PASS %s (HTTP %s)\n' "$label" "$actual"
+  show_response "$label"
 }
 
-expect_2xx() {
-  local label="$1" actual
-  shift
-  actual="$(status_for "$@")"
-  if [[ ! "$actual" =~ ^2[0-9][0-9]$ ]]; then
-    printf 'FAIL %-34s expected HTTP 2xx, got %s\n' "$label" "$actual"
-    return 1
+capture_session_id() {
+  local line
+  MCP_SESSION_ID=""
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "${line%%:*}" in
+      [Mm]cp-[Ss]ession-[Ii]d)
+        MCP_SESSION_ID="${line#*:}"
+        MCP_SESSION_ID="${MCP_SESSION_ID# }"
+        ;;
+    esac
+  done <<< "$LAST_RESPONSE"
+}
+
+start_mcp_session() {
+  local label="$1" path="$2" token="$3"
+  post_mcp "$label initialize" "$path" "$token" "$INIT_BODY" initialize
+  capture_session_id
+  if [[ ! "$LAST_RESPONSE" =~ ^HTTP/[0-9.]+[[:space:]]2[0-9][0-9] ]]; then
+    echo "Could not initialize $label; check the response above." >&2
+    exit 1
   fi
-  printf 'PASS %s (HTTP %s)\n' "$label" "$actual"
+  post_mcp "$label initialized notification" "$path" "$token" \
+    '{"jsonrpc":"2.0","method":"notifications/initialized"}' notification
 }
 
-echo "Checking the Gateway and MCP routes at $BASE_URL"
-expect_status 'Missing token is rejected' 401 /mcp
-expect_2xx 'Holmes → GitHub MCP' /mcp "$HOLMES_TOKEN"
-expect_2xx 'Holmes → Kubernetes read MCP' /mcp/k8s-read "$HOLMES_TOKEN"
-expect_2xx 'Operator → Kubernetes write MCP' /mcp/k8s-write "$OPERATOR_TOKEN"
+tool_call() {
+  local label="$1" path="$2" token="$3" tool="$4" arguments="$5"
+  local body request_id="$NEXT_REQUEST_ID"
+  NEXT_REQUEST_ID=$((NEXT_REQUEST_ID + 1))
+  body="{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":$arguments}}"
+  post_mcp "$label" "$path" "$token" "$body" call
+}
 
-echo "Smoke test passed. This checks MCP initialization and Gateway authentication; it does not call the paid Anthropic API."
+expect_body() {
+  local label="$1" pattern="$2"
+  if printf '%s' "$LAST_RESPONSE" | grep -Eiq "$pattern"; then
+    printf 'PASS: %s\n' "$label"
+  else
+    printf 'FAIL: %s (expected response matching /%s/)\n' "$label" "$pattern"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+expect_success() {
+  local label="$1"
+  if printf '%s' "$LAST_RESPONSE" | grep -Eiq '^HTTP/[0-9.]+[[:space:]]2[0-9][0-9]' && \
+    ! printf '%s' "$LAST_RESPONSE" | grep -Eiq '"isError"[[:space:]]*:[[:space:]]*true|"error"[[:space:]]*:'; then
+    printf 'PASS: %s\n' "$label"
+  else
+    printf 'FAIL: %s (expected a successful MCP result)\n' "$label"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+echo "Gateway: $BASE_URL"
+echo "Expected: 401 without a valid token; 2xx for allowed calls; MCP/Kubernetes denial text for blocked calls."
+
+# Invalid bearer token must be rejected before any MCP backend is reached.
+LAST_RESPONSE="$(curl --silent --show-error --include --request POST "$BASE_URL/mcp" \
+  -H 'Authorization: Bearer invalid' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data "$INIT_BODY")"
+show_response 'Invalid token is rejected'
+expect_body 'Invalid token rejected by Gateway' 'HTTP/[0-9.]+ 401'
+
+# GitHub route: Holmes can connect, while a write tool is filtered by the allowlist.
+start_mcp_session 'Holmes → GitHub MCP' '/mcp' "$HOLMES_TOKEN"
+tool_call 'Holmes create_issue is denied' '/mcp' "$HOLMES_TOKEN" 'create_issue' '{}'
+expect_body 'Holmes cannot create GitHub issues' 'unknown resource|authorization failed|authorization denied'
+start_mcp_session 'Operator → GitHub MCP' '/mcp' "$OPERATOR_TOKEN"
+tool_call 'Operator create_issue is denied' '/mcp' "$OPERATOR_TOKEN" 'create_issue' '{}'
+expect_body 'Operator cannot create GitHub issues' 'unknown resource|authorization failed|authorization denied'
+
+# Holmes may read the demo Deployment, but cannot read Secrets or access write tools.
+start_mcp_session 'Holmes → Kubernetes read MCP' '/mcp/k8s-read' "$HOLMES_TOKEN"
+tool_call 'Holmes reads demo Deployment' '/mcp/k8s-read' "$HOLMES_TOKEN" 'resources_get' \
+  '{"apiVersion":"apps/v1","kind":"Deployment","name":"demo-web","namespace":"demo"}'
+expect_success 'Holmes can read the demo Deployment'
+tool_call 'Holmes Secret read is denied' '/mcp/k8s-read' "$HOLMES_TOKEN" 'resources_get' \
+  '{"apiVersion":"v1","kind":"Secret","name":"curl-test-does-not-exist","namespace":"demo"}'
+expect_body 'Holmes cannot read Secrets' 'forbidden|unknown resource|authorization failed'
+tool_call 'Holmes cross-namespace read is denied' '/mcp/k8s-read' "$HOLMES_TOKEN" 'resources_get' \
+  "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"name\":\"curl-test-$PROBE_SUFFIX\",\"namespace\":\"kube-system\"}"
+expect_body 'Holmes cannot read outside demo' 'forbidden|unknown resource|authorization failed'
+tool_call 'Holmes exec attempt is denied' '/mcp/k8s-read' "$HOLMES_TOKEN" 'pods_exec' \
+  "{\"name\":\"curl-test-$PROBE_SUFFIX\",\"namespace\":\"demo\",\"command\":[\"true\"]}"
+expect_body 'Holmes cannot exec in Pods' 'forbidden|unknown resource|unknown tool|authorization failed'
+tool_call 'Holmes Deployment scale attempt is denied' '/mcp/k8s-read' "$HOLMES_TOKEN" 'resources_scale' \
+  "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"name\":\"curl-test-$PROBE_SUFFIX\",\"namespace\":\"demo\",\"scale\":1}"
+expect_body 'Holmes cannot modify Deployments' 'forbidden|unknown resource|unknown tool|authorization failed'
+
+# The Gateway must reject Holmes on the write backend before the fake delete reaches Kubernetes.
+start_mcp_session 'Holmes → Kubernetes write MCP (denial probe)' '/mcp/k8s-write' "$HOLMES_TOKEN"
+tool_call 'Holmes pod-delete attempt is denied' '/mcp/k8s-write' "$HOLMES_TOKEN" 'pods_delete' \
+  "{\"name\":\"curl-test-pod-$PROBE_SUFFIX\",\"namespace\":\"demo\"}"
+expect_body 'Holmes cannot use the write backend' 'unknown resource|authorization failed|authorization denied'
+
+# Operator may use the write backend, but its Kubernetes ServiceAccount is limited to Deployments in demo.
+start_mcp_session 'Operator → Kubernetes write MCP' '/mcp/k8s-write' "$OPERATOR_TOKEN"
+tool_call 'Operator reads demo Deployment' '/mcp/k8s-write' "$OPERATOR_TOKEN" 'resources_get' \
+  '{"apiVersion":"apps/v1","kind":"Deployment","name":"demo-web","namespace":"demo"}'
+expect_success 'Operator can access the demo Deployment'
+tool_call 'Operator Secret read is denied' '/mcp/k8s-write' "$OPERATOR_TOKEN" 'resources_get' \
+  '{"apiVersion":"v1","kind":"Secret","name":"curl-test-does-not-exist","namespace":"demo"}'
+expect_body 'Operator cannot read Secrets' 'forbidden|unknown resource|authorization failed'
+tool_call 'Operator Pod delete is denied' '/mcp/k8s-write' "$OPERATOR_TOKEN" 'pods_delete' \
+  "{\"name\":\"curl-test-pod-$PROBE_SUFFIX\",\"namespace\":\"demo\"}"
+expect_body 'Operator cannot delete Pods' 'forbidden|unknown resource|authorization failed'
+tool_call 'Operator Pod exec is denied' '/mcp/k8s-write' "$OPERATOR_TOKEN" 'pods_exec' \
+  "{\"name\":\"curl-test-$PROBE_SUFFIX\",\"namespace\":\"demo\",\"command\":[\"true\"]}"
+expect_body 'Operator cannot exec in Pods' 'forbidden|unknown resource|authorization failed'
+tool_call 'Operator write outside demo is denied' '/mcp/k8s-write' "$OPERATOR_TOKEN" 'resources_scale' \
+  "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"name\":\"curl-test-$PROBE_SUFFIX\",\"namespace\":\"kube-system\",\"scale\":1}"
+expect_body 'Operator cannot modify Deployments outside demo' 'forbidden|unknown resource|authorization failed'
+
+echo
+if [[ "$FAILURES" -eq 0 ]]; then
+  echo 'All expected authorization outcomes were observed.'
+else
+  echo "$FAILURES authorization check(s) did not match expectations. Review the response bodies above and Gateway/MCP logs."
+  exit 1
+fi
+echo 'No model request was sent; this test does not incur Anthropic API usage.'
