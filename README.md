@@ -2,7 +2,7 @@
 
 A hands-on lab for securing an AI SRE workflow on Kubernetes. HolmesGPT investigates an incident using read-only Kubernetes and GitHub tools. A separately authenticated operator can repair the demo application.
 
-> **Status:** Configuration is in progress and still needs a complete local run-through.
+> **Status: Lab configuration complete.** Follow the setup guide to deploy and exercise the full workflow. Environment-dependent checks that still need a local run are listed in [known validation gaps](docs/validation-gaps.md).
 
 ## Security controls
 
